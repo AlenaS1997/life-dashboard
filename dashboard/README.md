@@ -29,10 +29,17 @@ python3 -m http.server 8000
 
 ## Деплой на GitHub Pages
 
-1. Создай публичный репозиторий `life-dashboard-web` (или имя на свой вкус).
-2. В него положи только содержимое папки `dashboard/` (НЕ `scripts/`, НЕ `.secrets/`, НЕ `.env`).
-3. В Settings → Pages → Source = `main` branch, folder = `/root`.
-4. Через 1–2 минуты дашборд откроется по адресу `https://<твой-github>.github.io/life-dashboard-web/`.
+Дашборд живёт внутри монорепо `AlenaS1997/life-dashboard` в папке `dashboard/`. GitHub Pages через «Deploy from a branch» умеет публиковать только `/` или `/docs`, поэтому деплой настроен через отдельный workflow — `.github/workflows/pages.yml`: при каждом пуше, который трогает `dashboard/**`, Actions берёт содержимое папки и публикует его.
+
+Разовая настройка (три клика):
+
+1. Открой репо на GitHub → **Settings → Pages**.
+2. **Source**: `GitHub Actions` (не «Deploy from a branch»).
+3. Всё. Первый деплой запустится сам после ближайшего пуша, либо из вкладки **Actions** → «Deploy dashboard to GitHub Pages» → **Run workflow**.
+
+URL после первого успешного деплоя: `https://alenas1997.github.io/life-dashboard/`.
+
+Секретов в `dashboard/` нет — только `index.html`, `manifest.webmanifest`, `icon.svg`. Всё чувствительное (`.env`, `.secrets/`, JSON-ключи) защищено `.gitignore` и в публичный репо не попадает.
 
 ## Добавление на iPhone
 
