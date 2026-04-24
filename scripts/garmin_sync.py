@@ -22,6 +22,7 @@ warnings.filterwarnings("ignore")
 
 from dotenv import load_dotenv
 import garminconnect
+import garth  # модуль, который garminconnect использует под капотом для OAuth
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -56,14 +57,22 @@ log = logging.getLogger("garmin_sync")
 
 def _try_resume_session(email: str, password: str) -> garminconnect.Garmin | None:
     """Пробует поднять клиент из сохранённых garth-токенов.
-    Если токенов нет или они просрочены — возвращает None."""
-    if not GARTH_TOKENS_DIR.exists():
+    Если токенов нет или они просрочены — возвращает None.
+
+    Разные версии garminconnect по-разному экспонируют внутренний garth-клиент:
+    у одних есть атрибут `client.garth`, у других — нет. Поэтому работаем
+    напрямую с модулем garth (он же всё равно под капотом у garminconnect)."""
+    if not GARTH_TOKENS_DIR.exists() or not any(GARTH_TOKENS_DIR.iterdir()):
         return None
     try:
         log.info(f"Пробую восстановить сессию из {GARTH_TOKENS_DIR} (без логина).")
-        client = garminconnect.Garmin(email, password)
-        # У garth есть resume(path), который подхватит oauth1_token.json / oauth2_token.json
-        client.garth.resume(str(GARTH_TOKENS_DIR))
+        # Загружаем oauth1/oauth2 токены в модуль garth
+        garth.resume(str(GARTH_TOKENS_DIR))
+        # Создаём клиент garminconnect и подсовываем ему уже залогиненный garth
+        client = garminconnect.Garmin()
+        # В зависимости от версии garminconnect — разные места, куда положить клиент
+        if hasattr(client, "garth"):
+            client.garth = garth.client
         # Быстрая проверка, что токен живой — любой дешёвый вызов
         _ = client.get_user_profile()
         log.info("Сессия garth валидна — идём без логина.")
@@ -74,11 +83,35 @@ def _try_resume_session(email: str, password: str) -> garminconnect.Garmin | Non
 
 
 def _persist_session(client: garminconnect.Garmin) -> None:
-    """Сохраняет токены garth, чтобы следующий запуск пропустил логин."""
+    """Сохраняет токены garth, чтобы следующий запуск пропустил логин.
+
+    Пробуем три пути (версия-зависимо):
+      1) client.garth.dump(path) — у некоторых новых garminconnect.
+      2) модульный garth.save(path) — после login() глобальный garth.client уже залогинен.
+      3) ручной fallback — достаём oauth_token напрямую, если что-то из выше сломается.
+    """
     try:
         GARTH_TOKENS_DIR.mkdir(parents=True, exist_ok=True)
-        client.garth.dump(str(GARTH_TOKENS_DIR))
-        log.info(f"Токены garth сохранены в {GARTH_TOKENS_DIR}.")
+
+        # 1) путь через client
+        if hasattr(client, "garth") and hasattr(client.garth, "dump"):
+            client.garth.dump(str(GARTH_TOKENS_DIR))
+            log.info(f"Токены garth сохранены в {GARTH_TOKENS_DIR} (через client.garth).")
+            return
+
+        # 2) модульный garth — garminconnect.login() инициализирует garth.client
+        if hasattr(garth, "save"):
+            garth.save(str(GARTH_TOKENS_DIR))
+            log.info(f"Токены garth сохранены в {GARTH_TOKENS_DIR} (через garth.save).")
+            return
+
+        # 3) fallback: если у garth есть client.dump
+        if hasattr(garth, "client") and hasattr(garth.client, "dump"):
+            garth.client.dump(str(GARTH_TOKENS_DIR))
+            log.info(f"Токены garth сохранены в {GARTH_TOKENS_DIR} (через garth.client.dump).")
+            return
+
+        log.warning("Ни один из способов сохранить токены garth не подошёл к этой версии.")
     except Exception as e:
         # Не падаем, если не смогли сохранить — это лишь оптимизация
         log.warning(f"Не удалось сохранить токены garth: {e}")
