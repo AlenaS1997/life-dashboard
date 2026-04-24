@@ -1,0 +1,68 @@
+name: Garmin → Google Sheets sync
+
+on:
+  schedule:
+    # 08:05 MSK ежедневно (MSK = UTC+3 → 05:05 UTC)
+    - cron: "5 5 * * *"
+  # Позволяет запустить вручную из вкладки Actions
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Восстановить service-account.json из секрета
+        run: |
+          mkdir -p .secrets
+          echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > .secrets/service-account.json
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+
+      # Кэш garth-токенов между запусками — чтобы не логиниться каждый день
+      # и не получать 429 от Garmin. Ключ обновляется раз в сутки: свежий запуск
+      # подхватывает прошлый кэш через restore-keys, а затем сохраняет обновлённый.
+      - name: Дата для ключа кэша garth-токенов
+        id: cache_date
+        run: echo "date=$(date -u +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Восстановить кэш garth-токенов
+        id: garth_cache
+        uses: actions/cache@v4
+        with:
+          path: .secrets/garth
+          key: garth-tokens-v1-${{ steps.cache_date.outputs.date }}
+          restore-keys: |
+            garth-tokens-v1-
+
+      - name: Запустить Garmin sync
+        env:
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_PATH: .secrets/service-account.json
+          GARMIN_WORKSHEET_NAME: ${{ secrets.GARMIN_WORKSHEET_NAME }}
+        run: python scripts/garmin_sync.py
+
+      - name: Сохранить лог как артефакт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: garmin-log-${{ github.run_id }}
+          path: reports/*.log
+          retention-days: 14

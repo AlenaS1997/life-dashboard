@@ -1,0 +1,240 @@
+{
+  "name": "Life Dashboard — Morning Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 5 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Каждое утро 08:30 МСК",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Cron в UTC: 05:30 = 08:30 МСК. Запускается ПОСЛЕ garmin-sync (08:05)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+              "type": "string"
+            },
+            {
+              "id": "garmin-tab",
+              "name": "garmin_tab",
+              "value": "garmin_daily",
+              "type": "string"
+            },
+            {
+              "id": "events-tab",
+              "name": "events_tab",
+              "value": "gcal_events",
+              "type": "string"
+            },
+            {
+              "id": "chat-id",
+              "name": "telegram_chat_id",
+              "value": "REPLACE_ME_WITH_YOUR_CHAT_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config",
+      "name": "Конфиг",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Поправь telegram_chat_id (узнать можно у @userinfobot в Telegram)."
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $json.garmin_tab }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "fetch-garmin",
+      "name": "Тянем Garmin CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $('Конфиг').item.json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $('Конфиг').item.json.events_tab }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "fetch-events",
+      "name": "Тянем события дня",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсим оба CSV и формируем prompt для Claude.\nconst garminCsv = $('Тянем Garmin CSV').item.json.data || $('Тянем Garmin CSV').item.json;\nconst eventsCsv = $('Тянем события дня').item.json.data || $('Тянем события дня').item.json;\n\n// Универсальный split на \"строки CSV\" (без учёта экранирования, пока хватает).\nfunction parseCsv(raw) {\n  if (typeof raw !== 'string') raw = String(raw);\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\n\nconst garminRows = parseCsv(garminCsv);\nconst eventsRows = parseCsv(eventsCsv);\n\n// Последняя строка Garmin = вчерашние метрики\nconst latest = garminRows[garminRows.length - 1] || {};\n\n// Предыдущая неделя для контекста\nconst week = garminRows.slice(-7);\nconst avg = (key) => {\n  const nums = week.map(r => parseFloat(r[key])).filter(v => !isNaN(v));\n  if (!nums.length) return null;\n  return (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1);\n};\n\n// События на сегодня\nconst today = new Date().toISOString().slice(0, 10);\nconst todayEvents = eventsRows.filter(e => (e.date || e.Date || '').startsWith(today));\n\nconst payload = {\n  today,\n  latest,\n  week_averages: {\n    sleep_hours: avg('sleep_hours'),\n    sleep_score: avg('sleep_score'),\n    hrv_last_night: avg('hrv_last_night'),\n    steps: avg('steps'),\n    stress_avg: avg('stress_avg'),\n  },\n  events: todayEvents.map(e => ({\n    title: e.title || e.summary || e.Title || '',\n    start: e.start || e.start_time || e.time || '',\n  })),\n};\n\nreturn [{ json: payload }];"
+      },
+      "id": "build-context",
+      "name": "Собираем контекст",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 600,\n  \"system\": \"Ты — персональный ассистент Алёны. Пишешь ей утренний дайджест в Telegram на русском языке. Тон: тёплый, краткий, без воды. Формат ответа строго такой:\\n\\n🌅 *Доброе утро!*\\n\\n*Вчера:*\\n• сон — ... (если < 7 или sleep_score < 70, мягко отметь)\\n• HRV — ... (сравни с недельным средним)\\n• шаги — ...\\n• стресс — ...\\n\\n*Сегодня в календаре:*\\n• 09:00 — событие\\n(если событий нет — «пусто, день твой»)\\n\\n*Инсайт дня:* одна живая фраза на основе данных. Не мораль, не «надо». Только наблюдение или лёгкая подсказка.\\n\\nИспользуй Markdown (Telegram MarkdownV2 совместимый — звёздочки для жирного). Никаких emoji кроме 🌅 в заголовке. Округляй числа.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}"
+      },
+      "id": "claude",
+      "name": "Claude: сочиняет дайджест",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
+          "name": "Anthropic x-api-key"
+        }
+      },
+      "notes": "Credential: Header Auth, имя заголовка = x-api-key, значение = твой ANTHROPIC_API_KEY."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Конфиг').item.json.telegram_chat_id }}",
+        "text": "={{ $json.content[0].text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-send",
+      "name": "Отправить в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_TELEGRAM_CRED_ID",
+          "name": "Life Dashboard Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Каждое утро 08:30 МСК": {
+      "main": [
+        [
+          {
+            "node": "Конфиг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Конфиг": {
+      "main": [
+        [
+          {
+            "node": "Тянем Garmin CSV",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Тянем события дня",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Тянем Garmin CSV": {
+      "main": [
+        [
+          {
+            "node": "Собираем контекст",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Тянем события дня": {
+      "main": [
+        [
+          {
+            "node": "Собираем контекст",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Собираем контекст": {
+      "main": [
+        [
+          {
+            "node": "Claude: сочиняет дайджест",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: сочиняет дайджест": {
+      "main": [
+        [
+          {
+            "node": "Отправить в Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow"
+  },
+  "tags": ["life-dashboard", "telegram", "claude"]
+}

@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Life" />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <title>Life Dashboard</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --bg-card: #161616;
+      --bg-card-2: #202020;
+      --text: #fafafa;
+      --text-dim: #8a8a8a;
+      --text-muted: #5a5a5a;
+      --sleep: #9c88ff;
+      --hrv: #4fc3f7;
+      --steps: #66bb6a;
+      --stress: #ff7043;
+      --battery: #ffca28;
+      --score: #ec407a;
+      --border: #2a2a2a;
+      --radius: 18px;
+      --radius-sm: 12px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      font-feature-settings: "tnum" 1, "ss01" 1;
+      min-height: 100vh;
+      overscroll-behavior: none;
+    }
+
+    body {
+      padding:
+        max(env(safe-area-inset-top), 16px)
+        env(safe-area-inset-right)
+        max(env(safe-area-inset-bottom), 24px)
+        env(safe-area-inset-left);
+    }
+
+    main {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    header {
+      padding: 8px 4px 4px;
+    }
+    header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+    header p {
+      color: var(--text-dim);
+      font-size: 15px;
+      margin-top: 4px;
+      text-transform: capitalize;
+    }
+
+    section {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    section h2 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 14px;
+    }
+
+    /* Today metrics grid */
+    .today-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .today-grid .wide {
+      grid-column: span 2;
+    }
+    .metric {
+      background: var(--bg-card-2);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+    .metric-label {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .metric-value {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .metric-value .unit {
+      font-size: 15px;
+      color: var(--text-dim);
+      font-weight: 500;
+      margin-left: 3px;
+    }
+    .metric-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .metric .accent {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .metric.sleep  .accent { background: var(--sleep); }
+    .metric.score  .accent { background: var(--score); }
+    .metric.hrv    .accent { background: var(--hrv); }
+    .metric.steps  .accent { background: var(--steps); }
+    .metric.stress .accent { background: var(--stress); }
+    .metric.battery .accent { background: var(--battery); }
+
+    /* Trends */
+    .trends-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .trend {
+      background: var(--bg-card-2);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+    }
+    .trend-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .trend-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .trend-avg {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .trend-avg .unit {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: 2px;
+    }
+    .spark {
+      width: 100%;
+      height: 32px;
+      display: block;
+    }
+
+    /* Events */
+    .events-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .event {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card-2);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+    }
+    .event-time {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--hrv);
+      min-width: 54px;
+      font-feature-settings: "tnum" 1;
+    }
+    .event-title {
+      font-size: 15px;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .empty {
+      color: var(--text-muted);
+      text-align: center;
+      padding: 12px;
+      font-size: 14px;
+    }
+
+    footer {
+      padding: 8px 4px 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    footer button {
+      appearance: none;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 14px;
+      color: var(--text-dim);
+      font-size: 12px;
+      margin-top: 8px;
+      cursor: pointer;
+    }
+
+    .banner {
+      background: linear-gradient(135deg, #ff9800, #ff5722);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* Loading */
+    .skeleton {
+      color: transparent !important;
+      background: linear-gradient(90deg, #1a1a1a, #252525, #1a1a1a);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 4px;
+    }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .skeleton { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1 id="greeting">Доброе утро</h1>
+      <p id="today-date">—</p>
+    </header>
+
+    <div id="banner" class="banner" style="display:none"></div>
+
+    <section>
+      <h2>Сегодня</h2>
+      <div class="today-grid" id="today-grid">
+        <!-- fills via JS -->
+      </div>
+    </section>
+
+    <section>
+      <h2>Тренды · 7 дней</h2>
+      <div class="trends-grid" id="trends-grid">
+        <!-- fills via JS -->
+      </div>
+    </section>
+
+    <section>
+      <h2>События дня</h2>
+      <ul class="events-list" id="events-list">
+        <li class="empty">Загружаю…</li>
+      </ul>
+    </section>
+
+    <footer>
+      <div>Обновлено <span id="last-update">—</span></div>
+      <button id="refresh-btn">Обновить</button>
+    </footer>
+  </main>
+
+  <script>
+  // ============================================================
+  // КОНФИГУРАЦИЯ
+  // ============================================================
+  // Чтобы подключить реальные данные:
+  //   1. Открой Google Sheets → File → Share → изменить ссылку на "Anyone with the link: Viewer"
+  //   2. Подставь SHEET_ID ниже (он уже вставлен из текущей таблицы).
+  //   3. Убедись, что имена вкладок совпадают.
+  // Если таблица не доступна публично — дашборд покажет demo-данные.
+  // ============================================================
+  const CONFIG = {
+    SHEET_ID: "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+    GARMIN_TAB: "garmin_daily",
+    EVENTS_TAB: "gcal_events",
+    // true — всегда показывать demo-данные (для превью дизайна)
+    FORCE_MOCK: false,
+  };
+
+  // ============================================================
+  // ДАННЫЕ
+  // ============================================================
+  function gvizUrl(sheetId, tabName) {
+    return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq` +
+           `?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  }
+
+  async function fetchCsv(sheetId, tabName) {
+    const res = await fetch(gvizUrl(sheetId, tabName), { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for tab "${tabName}"`);
+    return parseCsv(await res.text());
+  }
+
+  function parseCsv(text) {
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 1) return [];
+    const headers = splitCsvLine(lines[0]);
+    return lines.slice(1).map((line) => {
+      const values = splitCsvLine(line);
+      const row = {};
+      headers.forEach((h, i) => { row[h] = values[i] ?? ""; });
+      return row;
+    });
+  }
+
+  function splitCsvLine(line) {
+    const out = [];
+    let cur = "";
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') {
+        if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = !inQ;
+      } else if (c === "," && !inQ) {
+        out.push(cur); cur = "";
+      } else {
+        cur += c;
+      }
+    }
+    out.push(cur);
+    return out.map((v) => v.trim());
+  }
+
+  function generateMockGarmin() {
+    const rows = [];
+    const today = new Date();
+    const seed = (i) => Math.sin(i * 17.3) * 0.5 + 0.5;
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const s = seed(i);
+      rows.push({
+        date: d.toISOString().slice(0, 10),
+        sleep_hours: (6.5 + s * 2.5).toFixed(2),
+        sleep_score: Math.round(65 + s * 30),
+        body_battery_max: Math.round(72 + s * 25),
+        body_battery_min: Math.round(12 + s * 20),
+        hrv_last_night: Math.round(38 + s * 25),
+        steps: Math.round(4500 + s * 9000),
+        stress_avg: Math.round(22 + (1 - s) * 30),
+      });
+    }
+    return rows;
+  }
+
+  function generateMockEvents() {
+    return [
+      { time: "09:30", title: "Стендап с командой" },
+      { time: "12:00", title: "Обед + прогулка" },
+      { time: "15:00", title: "Созвон с подрядчиком" },
+      { time: "19:00", title: "Йога" },
+    ];
+  }
+
+  function parseEvents(rows) {
+    // Ожидаемые колонки: start (ISO datetime или HH:MM), summary/title
+    // Make.com обычно кладёт start, end, summary. Берём события на сегодня.
+    const today = new Date().toISOString().slice(0, 10);
+    const result = [];
+    for (const row of rows) {
+      const start = row.start || row.start_time || row.begin || row.date || "";
+      const title = row.summary || row.title || row.name || row.event || "";
+      if (!title) continue;
+      // Фильтр по сегодня, если start выглядит как ISO datetime
+      if (start.length >= 10 && start.slice(0, 10) !== today) continue;
+      const timeMatch = start.match(/(\d{2}:\d{2})/);
+      result.push({ time: timeMatch ? timeMatch[1] : "—", title });
+    }
+    return result;
+  }
+
+  // ============================================================
+  // РЕНДЕР
+  // ============================================================
+  function renderHeader() {
+    const hour = new Date().getHours();
+    let g = "Доброе утро";
+    if (hour >= 12 && hour < 18) g = "Добрый день";
+    else if (hour >= 18 || hour < 5) g = "Добрый вечер";
+    document.getElementById("greeting").textContent = `${g}, Алёна`;
+
+    const dateStr = new Date().toLocaleDateString("ru-RU", {
+      weekday: "long", day: "numeric", month: "long",
+    });
+    document.getElementById("today-date").textContent = dateStr;
+  }
+
+  function metricCard({ label, value, unit, sub, accent, wide }) {
+    return `
+      <div class="metric ${accent}${wide ? " wide" : ""}">
+        <span class="accent"></span>
+        <span class="metric-label">${label}</span>
+        <span class="metric-value">${value}${unit ? `<span class="unit">${unit}</span>` : ""}</span>
+        ${sub ? `<span class="metric-sub">${sub}</span>` : ""}
+      </div>`;
+  }
+
+  function renderToday(row) {
+    if (!row) {
+      document.getElementById("today-grid").innerHTML =
+        '<div class="empty wide" style="grid-column:span 2">Нет данных за сегодня</div>';
+      return;
+    }
+    const grid = document.getElementById("today-grid");
+    grid.innerHTML = [
+      metricCard({
+        label: "Сон", value: row.sleep_hours, unit: "ч",
+        sub: `Score · ${row.sleep_score}`, accent: "sleep", wide: true,
+      }),
+      metricCard({ label: "HRV", value: row.hrv_last_night, unit: "мс", accent: "hrv" }),
+      metricCard({ label: "Шаги", value: formatNumber(row.steps), accent: "steps" }),
+      metricCard({
+        label: "Стресс", value: row.stress_avg, unit: "/100",
+        accent: "stress",
+      }),
+      metricCard({
+        label: "Body Battery", value: `${row.body_battery_max}`,
+        sub: `min · ${row.body_battery_min}`, accent: "battery",
+      }),
+    ].join("");
+  }
+
+  // Локаль-устойчивый парсер: "6,9" → 6.9, "12 509" → 12509, числа проходят as-is.
+  // Google Sheets при локали ru_RU отдаёт gviz CSV с запятыми и пробелами-разделителями.
+  function num(v) {
+    if (v == null || v === "") return NaN;
+    if (typeof v === "number") return v;
+    // \u00A0 = неразрывный пробел (иногда встречается в тысячах).
+    const cleaned = String(v).replace(/[\s\u00A0]/g, "").replace(",", ".");
+    const n = parseFloat(cleaned);
+    return isFinite(n) ? n : NaN;
+  }
+
+  function formatNumber(v) {
+    const n = num(v);
+    if (!isFinite(n)) return v;
+    return n.toLocaleString("ru-RU");
+  }
+
+  function sparkline(values, color) {
+    if (!values.length) return "";
+    const w = 140, h = 32, pad = 2;
+    const nums = values.map(num).filter((v) => isFinite(v));
+    if (!nums.length) return "";
+    const max = Math.max(...nums);
+    const min = Math.min(...nums);
+    const range = max - min || 1;
+    const points = nums.map((v, i) => {
+      const x = pad + (i / (nums.length - 1 || 1)) * (w - pad * 2);
+      const y = pad + (h - pad * 2) - ((v - min) / range) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+    const lastX = pad + (w - pad * 2);
+    const lastY = pad + (h - pad * 2) - ((nums[nums.length - 1] - min) / range) * (h - pad * 2);
+    return `
+      <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        <circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="2.6" fill="${color}" />
+      </svg>`;
+  }
+
+  function renderTrends(rows) {
+    const grid = document.getElementById("trends-grid");
+    if (!rows.length) {
+      grid.innerHTML = '<div class="empty" style="grid-column:span 2">Нет истории</div>';
+      return;
+    }
+    const last7 = rows.slice(-7);
+    const metrics = [
+      { key: "sleep_hours", label: "Сон", color: "var(--sleep)", unit: "ч", decimals: 1 },
+      { key: "hrv_last_night", label: "HRV", color: "var(--hrv)", unit: "мс", decimals: 0 },
+      { key: "steps", label: "Шаги", color: "var(--steps)", unit: "", decimals: 0 },
+      { key: "stress_avg", label: "Стресс", color: "var(--stress)", unit: "", decimals: 0 },
+    ];
+    grid.innerHTML = metrics.map((m) => {
+      const values = last7.map((r) => num(r[m.key])).filter((v) => isFinite(v));
+      const hasData = values.length > 0;
+      const avg = hasData ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+      const avgStr = !hasData
+        ? "—"
+        : (m.decimals
+            ? avg.toFixed(m.decimals).replace(".", ",")
+            : Math.round(avg).toLocaleString("ru-RU"));
+      return `
+        <div class="trend">
+          <div class="trend-head">
+            <span class="trend-label">${m.label}</span>
+            <span class="trend-avg">${avgStr}<span class="unit">${m.unit ? " " + m.unit : ""}</span></span>
+          </div>
+          ${sparkline(last7.map((r) => r[m.key]), m.color)}
+        </div>`;
+    }).join("");
+  }
+
+  function renderEvents(events) {
+    const list = document.getElementById("events-list");
+    if (!events.length) {
+      list.innerHTML = '<li class="empty">На сегодня событий нет</li>';
+      return;
+    }
+    list.innerHTML = events.map((e) => `
+      <li class="event">
+        <span class="event-time">${e.time}</span>
+        <span class="event-title">${escapeHtml(e.title)}</span>
+      </li>`).join("");
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  function showBanner(message) {
+    const el = document.getElementById("banner");
+    el.style.display = "block";
+    el.innerHTML = message;
+  }
+
+  function setLastUpdate() {
+    const t = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    document.getElementById("last-update").textContent = t;
+  }
+
+  // ============================================================
+  // ОСНОВНОЙ ФЛОУ
+  // ============================================================
+  async function load() {
+    renderHeader();
+
+    let garminRows = [];
+    let eventRows = [];
+    let usingMock = CONFIG.FORCE_MOCK;
+
+    if (!usingMock) {
+      try {
+        garminRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.GARMIN_TAB);
+        // Если в таблице пока только заголовки — тоже переходим на mock
+        if (!garminRows.length) throw new Error("empty sheet");
+      } catch (e) {
+        console.warn("Garmin CSV недоступен:", e.message);
+        usingMock = true;
+      }
+
+      if (!usingMock) {
+        try {
+          eventRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.EVENTS_TAB);
+        } catch (e) {
+          console.warn("Events CSV недоступен:", e.message);
+          // не критично, просто пропустим
+        }
+      }
+    }
+
+    if (usingMock) {
+      garminRows = generateMockGarmin();
+      eventRows = [];
+      showBanner(
+        "Показаны demo-данные. Чтобы подключить реальные:<br>" +
+        "Google Sheets → Share → «Anyone with the link: Viewer»."
+      );
+    }
+
+    // сортируем по дате на всякий случай
+    garminRows.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const latest = garminRows[garminRows.length - 1];
+
+    renderToday(latest);
+    renderTrends(garminRows);
+
+    const events = usingMock ? generateMockEvents() : parseEvents(eventRows);
+    renderEvents(events);
+
+    setLastUpdate();
+  }
+
+  document.getElementById("refresh-btn").addEventListener("click", () => {
+    load().catch((e) => {
+      console.error(e);
+      showBanner("Ошибка загрузки: " + e.message);
+    });
+  });
+
+  load().catch((e) => {
+    console.error(e);
+    showBanner("Ошибка загрузки: " + e.message);
+  });
+  </script>
+</body>
+</html>
