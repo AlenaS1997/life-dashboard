@@ -25,6 +25,7 @@
       --stress: #ff7043;
       --battery: #ffca28;
       --score: #ec407a;
+      --weather: #80d8ff;
       --border: #2a2a2a;
       --radius: 18px;
       --radius-sm: 12px;
@@ -93,6 +94,54 @@
       text-transform: uppercase;
       color: var(--text-dim);
       margin-bottom: 14px;
+    }
+
+    /* Weather strip */
+    .weather {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+    }
+    .weather-icon {
+      font-size: 32px;
+      line-height: 1;
+      width: 40px;
+      text-align: center;
+    }
+    .weather-main {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex: 1;
+      min-width: 0;
+    }
+    .weather-temp {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .weather-temp .unit {
+      font-size: 14px;
+      color: var(--text-dim);
+      font-weight: 500;
+      margin-left: 1px;
+    }
+    .weather-sub {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .weather-extra {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: right;
+      line-height: 1.5;
+      flex-shrink: 0;
     }
 
     /* Today metrics grid */
@@ -246,32 +295,64 @@
       margin-top: 8px;
       cursor: pointer;
     }
+    footer button:active {
+      background: var(--bg-card-2);
+    }
 
+    /* Banner */
     .banner {
-      background: linear-gradient(135deg, #ff9800, #ff5722);
-      color: #fff;
-      padding: 10px 14px;
+      padding: 12px 14px;
       border-radius: var(--radius-sm);
       font-size: 13px;
-      text-align: center;
       line-height: 1.4;
     }
-
-    /* Loading */
-    .skeleton {
-      color: transparent !important;
-      background: linear-gradient(90deg, #1a1a1a, #252525, #1a1a1a);
-      background-size: 200% 100%;
-      animation: shimmer 1.5s infinite;
-      border-radius: 4px;
+    .banner.warn {
+      background: linear-gradient(135deg, #ff9800, #ff5722);
+      color: #fff;
     }
+    .banner.info {
+      background: linear-gradient(135deg, #29b6f6, #1e88e5);
+      color: #fff;
+    }
+    .banner.muted {
+      background: var(--bg-card);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .banner a {
+      color: inherit;
+      text-decoration: underline;
+      font-weight: 600;
+    }
+    .banner b {
+      font-weight: 600;
+    }
+
+    /* Skeleton placeholders (initial load) */
+    .skeleton-bar {
+      background: linear-gradient(90deg, #1a1a1a, #2a2a2a, #1a1a1a);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 4px;
+      height: 10px;
+      margin-top: 8px;
+    }
+    .skeleton-bar:first-child { margin-top: 0; }
+    .skeleton-bar.tall { height: 22px; }
+    .skeleton-bar.w-30 { width: 30%; }
+    .skeleton-bar.w-40 { width: 40%; }
+    .skeleton-bar.w-50 { width: 50%; }
+    .skeleton-bar.w-60 { width: 60%; }
+    .skeleton-bar.w-70 { width: 70%; }
+    .skeleton-bar.w-80 { width: 80%; }
+
     @keyframes shimmer {
       0% { background-position: 200% 0; }
       100% { background-position: -200% 0; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .skeleton { animation: none; }
+      .skeleton-bar { animation: none; }
     }
   </style>
 </head>
@@ -282,26 +363,89 @@
       <p id="today-date">—</p>
     </header>
 
-    <div id="banner" class="banner" style="display:none"></div>
+    <section id="weather-section" class="weather" style="display:none">
+      <div class="weather-icon" id="weather-icon">⛅</div>
+      <div class="weather-main">
+        <div class="weather-temp"><span id="weather-temp">—</span><span class="unit">°</span></div>
+        <div class="weather-sub" id="weather-sub">Погода</div>
+      </div>
+      <div class="weather-extra" id="weather-extra"></div>
+    </section>
+
+    <div id="banner" style="display:none"></div>
 
     <section>
       <h2>Сегодня</h2>
       <div class="today-grid" id="today-grid">
-        <!-- fills via JS -->
+        <div class="metric wide">
+          <div class="skeleton-bar w-30"></div>
+          <div class="skeleton-bar tall w-60" style="margin-top:12px"></div>
+          <div class="skeleton-bar w-40" style="margin-top:8px"></div>
+        </div>
+        <div class="metric">
+          <div class="skeleton-bar w-50"></div>
+          <div class="skeleton-bar tall w-70" style="margin-top:12px"></div>
+        </div>
+        <div class="metric">
+          <div class="skeleton-bar w-50"></div>
+          <div class="skeleton-bar tall w-80" style="margin-top:12px"></div>
+        </div>
+        <div class="metric">
+          <div class="skeleton-bar w-60"></div>
+          <div class="skeleton-bar tall w-70" style="margin-top:12px"></div>
+        </div>
+        <div class="metric">
+          <div class="skeleton-bar w-50"></div>
+          <div class="skeleton-bar tall w-60" style="margin-top:12px"></div>
+        </div>
       </div>
     </section>
 
     <section>
       <h2>Тренды · 7 дней</h2>
       <div class="trends-grid" id="trends-grid">
-        <!-- fills via JS -->
+        <div class="trend">
+          <div class="trend-head">
+            <span class="trend-label"><span class="skeleton-bar w-50" style="display:inline-block;width:50px;height:8px;vertical-align:middle"></span></span>
+            <span class="trend-avg"><span class="skeleton-bar w-30" style="display:inline-block;width:24px;height:10px;vertical-align:middle"></span></span>
+          </div>
+          <div class="skeleton-bar" style="height:32px"></div>
+        </div>
+        <div class="trend">
+          <div class="trend-head">
+            <span class="trend-label"><span class="skeleton-bar w-50" style="display:inline-block;width:50px;height:8px;vertical-align:middle"></span></span>
+            <span class="trend-avg"><span class="skeleton-bar w-30" style="display:inline-block;width:24px;height:10px;vertical-align:middle"></span></span>
+          </div>
+          <div class="skeleton-bar" style="height:32px"></div>
+        </div>
+        <div class="trend">
+          <div class="trend-head">
+            <span class="trend-label"><span class="skeleton-bar w-50" style="display:inline-block;width:50px;height:8px;vertical-align:middle"></span></span>
+            <span class="trend-avg"><span class="skeleton-bar w-30" style="display:inline-block;width:24px;height:10px;vertical-align:middle"></span></span>
+          </div>
+          <div class="skeleton-bar" style="height:32px"></div>
+        </div>
+        <div class="trend">
+          <div class="trend-head">
+            <span class="trend-label"><span class="skeleton-bar w-50" style="display:inline-block;width:50px;height:8px;vertical-align:middle"></span></span>
+            <span class="trend-avg"><span class="skeleton-bar w-30" style="display:inline-block;width:24px;height:10px;vertical-align:middle"></span></span>
+          </div>
+          <div class="skeleton-bar" style="height:32px"></div>
+        </div>
       </div>
     </section>
 
     <section>
       <h2>События дня</h2>
       <ul class="events-list" id="events-list">
-        <li class="empty">Загружаю…</li>
+        <li class="event">
+          <span class="event-time"><span class="skeleton-bar" style="display:inline-block;width:38px;height:10px;vertical-align:middle"></span></span>
+          <span class="event-title"><span class="skeleton-bar" style="display:inline-block;width:70%;height:10px;vertical-align:middle"></span></span>
+        </li>
+        <li class="event">
+          <span class="event-time"><span class="skeleton-bar" style="display:inline-block;width:38px;height:10px;vertical-align:middle"></span></span>
+          <span class="event-title"><span class="skeleton-bar" style="display:inline-block;width:55%;height:10px;vertical-align:middle"></span></span>
+        </li>
       </ul>
     </section>
 
@@ -316,10 +460,10 @@
   // КОНФИГУРАЦИЯ
   // ============================================================
   // Чтобы подключить реальные данные:
-  //   1. Открой Google Sheets → File → Share → изменить ссылку на "Anyone with the link: Viewer"
+  //   1. Открой Google Sheets → File → Share → "Anyone with the link: Viewer"
   //   2. Подставь SHEET_ID ниже (он уже вставлен из текущей таблицы).
   //   3. Убедись, что имена вкладок совпадают.
-  // Если таблица не доступна публично — дашборд покажет demo-данные.
+  // Если таблица не доступна публично — дашборд покажет инструкцию.
   // ============================================================
   const CONFIG = {
     SHEET_ID: "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
@@ -327,10 +471,19 @@
     EVENTS_TAB: "gcal_events",
     // true — всегда показывать demo-данные (для превью дизайна)
     FORCE_MOCK: false,
+    // Координаты для блока погоды (по умолчанию — Москва)
+    WEATHER: {
+      lat: 55.7558,
+      lon: 37.6173,
+      tz: "Europe/Moscow",
+    },
   };
 
+  const CACHE_KEY = "life-dashboard:cache:v1";
+  const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 часов
+
   // ============================================================
-  // ДАННЫЕ
+  // ДАННЫЕ — Google Sheets
   // ============================================================
   function gvizUrl(sheetId, tabName) {
     return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq` +
@@ -339,8 +492,24 @@
 
   async function fetchCsv(sheetId, tabName) {
     const res = await fetch(gvizUrl(sheetId, tabName), { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for tab "${tabName}"`);
-    return parseCsv(await res.text());
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status} for tab "${tabName}"`);
+      err.status = res.status;
+      // Google для приватной таблицы возвращает 404/400/302 — это всё «нужен auth»
+      if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404) {
+        err.code = "sheet_private";
+      }
+      throw err;
+    }
+    const text = await res.text();
+    // Если таблица закрыта, gviz иногда отдаёт 200 + HTML-страницу логина
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("text/html") || /^\s*</.test(text)) {
+      const err = new Error(`sheet "${tabName}" requires auth`);
+      err.code = "sheet_private";
+      throw err;
+    }
+    return parseCsv(text);
   }
 
   function parseCsv(text) {
@@ -423,6 +592,109 @@
   }
 
   // ============================================================
+  // ДАННЫЕ — Open-Meteo (погода без API-ключа)
+  // ============================================================
+  async function fetchWeather() {
+    const w = CONFIG.WEATHER;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${w.lat}&longitude=${w.lon}` +
+                `&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m` +
+                `&timezone=${encodeURIComponent(w.tz)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`weather HTTP ${res.status}`);
+    const data = await res.json();
+    return data.current || {};
+  }
+
+  function weatherEmoji(code) {
+    if (code === 0) return "☀️";
+    if (code >= 1 && code <= 2) return "⛅";
+    if (code === 3) return "☁️";
+    if (code === 45 || code === 48) return "🌫️";
+    if (code >= 51 && code <= 57) return "🌦️";
+    if (code >= 61 && code <= 67) return "🌧️";
+    if (code >= 71 && code <= 77) return "❄️";
+    if (code >= 80 && code <= 82) return "🌦️";
+    if (code === 85 || code === 86) return "🌨️";
+    if (code >= 95) return "⛈️";
+    return "🌤️";
+  }
+
+  function weatherDescription(code) {
+    if (code === 0) return "Ясно";
+    if (code === 1) return "Преимущ. ясно";
+    if (code === 2) return "Переменная облачность";
+    if (code === 3) return "Пасмурно";
+    if (code === 45 || code === 48) return "Туман";
+    if (code >= 51 && code <= 57) return "Морось";
+    if (code === 61) return "Небольшой дождь";
+    if (code === 63) return "Дождь";
+    if (code === 65) return "Сильный дождь";
+    if (code >= 66 && code <= 67) return "Ледяной дождь";
+    if (code >= 71 && code <= 75) return "Снег";
+    if (code === 77) return "Снежные зёрна";
+    if (code >= 80 && code <= 82) return "Ливни";
+    if (code === 85 || code === 86) return "Снегопад";
+    if (code === 95) return "Гроза";
+    if (code === 96 || code === 99) return "Гроза с градом";
+    return "—";
+  }
+
+  function renderWeather(w) {
+    const sec = document.getElementById("weather-section");
+    if (!w || w.temperature_2m == null) {
+      sec.style.display = "none";
+      return;
+    }
+    sec.style.display = "flex";
+    document.getElementById("weather-icon").textContent = weatherEmoji(w.weather_code);
+    document.getElementById("weather-temp").textContent = Math.round(w.temperature_2m);
+    const feels = Math.round(w.apparent_temperature);
+    document.getElementById("weather-sub").textContent =
+      `${weatherDescription(w.weather_code)} · ощущается как ${feels}°`;
+    const wind = Math.round(w.wind_speed_10m);
+    const precip = Number(w.precipitation) || 0;
+    document.getElementById("weather-extra").innerHTML =
+      `Ветер ${wind} м/с${precip > 0 ? `<br>Осадки ${precip} мм` : ""}`;
+  }
+
+  // ============================================================
+  // КЭШ — localStorage (на случай оффлайна / закрытой Sheets)
+  // ============================================================
+  function loadCache() {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.ts) return null;
+      // Кэш не считается «свежим», но всегда лучше, чем mock.
+      return data;
+    } catch { return null; }
+  }
+
+  function saveCache(payload) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        ts: Date.now(),
+        ...payload,
+      }));
+    } catch (e) {
+      console.warn("Не получилось сохранить кэш:", e);
+    }
+  }
+
+  function cacheAgeText(ts) {
+    if (!ts) return "";
+    const diff = Date.now() - ts;
+    if (diff < 60 * 1000) return "только что";
+    const mins = Math.round(diff / 60000);
+    if (mins < 60) return `${mins} мин назад`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} ч назад`;
+    const days = Math.round(hours / 24);
+    return `${days} дн назад`;
+  }
+
+  // ============================================================
   // РЕНДЕР
   // ============================================================
   function renderHeader() {
@@ -473,7 +745,7 @@
     ].join("");
   }
 
-  // Локаль-устойчивый парсер: "6,9" → 6.9, "12 509" → 12509, числа проходят as-is.
+  // Локаль-устойчивый парсер: "6,9" → 6.9, "12 509" → 12509, числа as-is.
   // Google Sheets при локали ru_RU отдаёт gviz CSV с запятыми и пробелами-разделителями.
   function num(v) {
     if (v == null || v === "") return NaN;
@@ -520,10 +792,10 @@
     }
     const last7 = rows.slice(-7);
     const metrics = [
-      { key: "sleep_hours", label: "Сон", color: "var(--sleep)", unit: "ч", decimals: 1 },
-      { key: "hrv_last_night", label: "HRV", color: "var(--hrv)", unit: "мс", decimals: 0 },
-      { key: "steps", label: "Шаги", color: "var(--steps)", unit: "", decimals: 0 },
-      { key: "stress_avg", label: "Стресс", color: "var(--stress)", unit: "", decimals: 0 },
+      { key: "sleep_hours",    label: "Сон",    color: "var(--sleep)",  unit: "ч",  decimals: 1 },
+      { key: "hrv_last_night", label: "HRV",    color: "var(--hrv)",    unit: "мс", decimals: 0 },
+      { key: "steps",          label: "Шаги",   color: "var(--steps)",  unit: "",   decimals: 0 },
+      { key: "stress_avg",     label: "Стресс", color: "var(--stress)", unit: "",   decimals: 0 },
     ];
     grid.innerHTML = metrics.map((m) => {
       const values = last7.map((r) => num(r[m.key])).filter((v) => isFinite(v));
@@ -553,7 +825,7 @@
     }
     list.innerHTML = events.map((e) => `
       <li class="event">
-        <span class="event-time">${e.time}</span>
+        <span class="event-time">${escapeHtml(e.time)}</span>
         <span class="event-title">${escapeHtml(e.title)}</span>
       </li>`).join("");
   }
@@ -564,14 +836,20 @@
     }[c]));
   }
 
-  function showBanner(message) {
+  function showBanner(message, kind) {
     const el = document.getElementById("banner");
     el.style.display = "block";
+    el.className = "banner " + (kind || "muted");
     el.innerHTML = message;
   }
 
-  function setLastUpdate() {
-    const t = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  function hideBanner() {
+    const el = document.getElementById("banner");
+    el.style.display = "none";
+  }
+
+  function setLastUpdate(label) {
+    const t = label || new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
     document.getElementById("last-update").textContent = t;
   }
 
@@ -580,27 +858,47 @@
   // ============================================================
   async function load() {
     renderHeader();
+    hideBanner();
+
+    // Погода — параллельно, не блокирует основной флоу
+    fetchWeather().then(renderWeather).catch((e) => {
+      console.warn("Погода недоступна:", e.message);
+      // Если в кэше была погода — отрендерим её
+      const cached = loadCache();
+      if (cached && cached.weather) renderWeather(cached.weather);
+    });
 
     let garminRows = [];
     let eventRows = [];
     let usingMock = CONFIG.FORCE_MOCK;
+    let sheetClosed = false;
+    let usingCache = false;
 
     if (!usingMock) {
       try {
         garminRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.GARMIN_TAB);
-        // Если в таблице пока только заголовки — тоже переходим на mock
         if (!garminRows.length) throw new Error("empty sheet");
       } catch (e) {
         console.warn("Garmin CSV недоступен:", e.message);
-        usingMock = true;
+        if (e.code === "sheet_private") sheetClosed = true;
+
+        // Fallback: пробуем взять из кэша
+        const cached = loadCache();
+        if (cached && cached.garminRows && cached.garminRows.length) {
+          garminRows = cached.garminRows;
+          eventRows = cached.eventRows || [];
+          usingCache = true;
+        } else {
+          usingMock = true;
+        }
       }
 
-      if (!usingMock) {
+      if (!usingMock && !usingCache) {
         try {
           eventRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.EVENTS_TAB);
         } catch (e) {
           console.warn("Events CSV недоступен:", e.message);
-          // не критично, просто пропустим
+          // не критично, пропускаем
         }
       }
     }
@@ -608,9 +906,29 @@
     if (usingMock) {
       garminRows = generateMockGarmin();
       eventRows = [];
+    }
+
+    // Баннер: разные сценарии
+    if (sheetClosed && usingMock) {
       showBanner(
-        "Показаны demo-данные. Чтобы подключить реальные:<br>" +
-        "Google Sheets → Share → «Anyone with the link: Viewer»."
+        '<b>Google Sheets закрыт.</b> Чтобы увидеть живые данные:<br>' +
+        '<a href="https://docs.google.com/spreadsheets/d/' + CONFIG.SHEET_ID + '/edit" target="_blank" rel="noopener">' +
+        'открыть таблицу</a> → <b>Share</b> → выбрать «<b>Anyone with the link: Viewer</b>».',
+        "warn"
+      );
+    } else if (usingCache) {
+      const age = cacheAgeText(loadCache()?.ts);
+      showBanner(
+        `Нет связи с Google Sheets — показаны последние сохранённые данные${age ? ` (${age})` : ""}. ` +
+        `Жмякни «Обновить», когда появится сеть.`,
+        "info"
+      );
+    } else if (usingMock && CONFIG.FORCE_MOCK) {
+      showBanner("FORCE_MOCK = true — отображаются demo-данные.", "muted");
+    } else if (usingMock) {
+      showBanner(
+        "Не удалось загрузить данные — показан demo-набор. Если Sheets открыт, попробуй обновить.",
+        "info"
       );
     }
 
@@ -624,20 +942,40 @@
     const events = usingMock ? generateMockEvents() : parseEvents(eventRows);
     renderEvents(events);
 
-    setLastUpdate();
+    // Сохраняем в кэш только реальные данные (не mock!)
+    if (!usingMock && !usingCache) {
+      saveCache({ garminRows, eventRows });
+    }
+
+    if (usingCache) {
+      setLastUpdate(`из кэша · ${cacheAgeText(loadCache()?.ts)}`);
+    } else {
+      setLastUpdate();
+    }
   }
 
   document.getElementById("refresh-btn").addEventListener("click", () => {
     load().catch((e) => {
       console.error(e);
-      showBanner("Ошибка загрузки: " + e.message);
+      showBanner("Ошибка загрузки: " + escapeHtml(e.message), "warn");
     });
   });
 
   load().catch((e) => {
     console.error(e);
-    showBanner("Ошибка загрузки: " + e.message);
+    showBanner("Ошибка загрузки: " + escapeHtml(e.message), "warn");
   });
+
+  // ============================================================
+  // SERVICE WORKER (offline-кэш для статики и API)
+  // ============================================================
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((e) => {
+        console.warn("SW registration failed:", e);
+      });
+    });
+  }
   </script>
 </body>
 </html>
