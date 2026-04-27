@@ -1,0 +1,257 @@
+{
+  "name": "Life Dashboard — Google Calendar → Sheets sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 5 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Каждый день 08:00 МСК",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Cron в UTC: 05:00 = 08:00 МСК. Запускается ДО garmin-sync (08:05) и до утреннего дайджеста (08:30)."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+              "type": "string"
+            },
+            {
+              "id": "events-tab",
+              "name": "events_tab",
+              "value": "gcal_events",
+              "type": "string"
+            },
+            {
+              "id": "calendar-id",
+              "name": "calendar_id",
+              "value": "savchenko.alena.27071997@gmail.com",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config",
+      "name": "Конфиг",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Если у тебя несколько календарей и нужны все — поменяй calendar_id на 'primary' или нужный ID."
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $json.calendar_id }}",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "options": {
+          "singleEvents": true,
+          "timeMin": "={{ $now.startOf('day').toISO() }}",
+          "timeMax": "={{ $now.endOf('day').toISO() }}",
+          "orderBy": "startTime"
+        }
+      },
+      "id": "fetch-events",
+      "name": "Получить события дня",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [680, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "singleEvents: true — раскрывает повторяющиеся события (Подъём, Зал, ...) в индивидуальные экземпляры на сегодня. timeMin/timeMax — границы сегодняшнего дня в локальной таймзоне инстанса (timezone в settings = Europe/Moscow)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Преобразуем события Google Calendar в строки таблицы\n// Колонки: date, event_title, start_time, end_time, calendar\nconst items = $input.all();\nif (!items.length) {\n  // Событий нет — возвращаем один пустой объект-маркер,\n  // чтобы Clear sheet всё равно отработал и таблица очистилась.\n  return [{ json: { __empty: true } }];\n}\nreturn items.map((item) => {\n  const e = item.json;\n  const start = (e.start && (e.start.dateTime || e.start.date)) || '';\n  const end = (e.end && (e.end.dateTime || e.end.date)) || '';\n  return {\n    json: {\n      date: start,\n      event_title: e.summary || '',\n      start_time: start,\n      end_time: end,\n      calendar: (e.organizer && e.organizer.email) || (e.creator && e.creator.email) || ''\n    }\n  };\n});"
+      },
+      "id": "map-rows",
+      "name": "Маппим в строки таблицы",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Если событий 0 — отдаём служебный объект {__empty:true}, чтобы Clear sheet точно отработал. Append-нода это поле увидит и пропустит запись (см. фильтр ниже)."
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.events_tab }}",
+          "mode": "name"
+        },
+        "clear": "specificRows",
+        "startIndex": 2,
+        "rowsToDelete": 5000
+      },
+      "id": "clear-sheet",
+      "name": "Очистить gcal_events (кроме заголовка)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1120, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "executeOnce": true,
+      "notes": "Очищаем строки 2..5001 в листе gcal_events. Заголовок (строка 1) остаётся. Это и есть гарантия идемпотентности: каждое утро таблица обнуляется и записывается заново."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "not-empty",
+              "leftValue": "={{ $('Маппим в строки таблицы').first().json.__empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "guard-empty",
+      "name": "Есть ли события?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1340, 300],
+      "notes": "Если событий нет — append пропускаем, таблица остаётся пустой (только заголовок). Дашборд покажет «На сегодня событий нет»."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.events_tab }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "append-rows",
+      "name": "Append в gcal_events",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1560, 240],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Колонки в таблице: date, event_title, start_time, end_time, calendar. Auto-map по именам — n8n сам сопоставит."
+    }
+  ],
+  "connections": {
+    "Каждый день 08:00 МСК": {
+      "main": [
+        [
+          {
+            "node": "Конфиг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Конфиг": {
+      "main": [
+        [
+          {
+            "node": "Получить события дня",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Получить события дня": {
+      "main": [
+        [
+          {
+            "node": "Маппим в строки таблицы",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Маппим в строки таблицы": {
+      "main": [
+        [
+          {
+            "node": "Очистить gcal_events (кроме заголовка)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Очистить gcal_events (кроме заголовка)": {
+      "main": [
+        [
+          {
+            "node": "Есть ли события?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Есть ли события?": {
+      "main": [
+        [
+          {
+            "node": "Append в gcal_events",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow"
+  },
+  "tags": ["life-dashboard", "calendar", "sync"]
+}

@@ -11,14 +11,14 @@
 | Источник | Метрики | Статус |
 |----------|---------|--------|
 | Garmin | Сон, HRV, шаги, стресс, Body Battery | Скрипт готов, живёт в Sheets, кэш сессии через garth |
-| Google Calendar | События дня | ✅ Работает через Make.com daily 08:00 |
+| Google Calendar | События дня | Переезжаем с Make.com (упёрся в лимит 1000 операций) на n8n. Workflow готов: `n8n/gcal-sync-workflow.json`. Нужен импорт + Google OAuth credential. |
 | FatSecret | Питание (калории, БЖУ) | Ожидаем доступ (пароль) |
 | Whoop | Восстановление | Не подключён (опционально) |
 
 ## Инфраструктура
 
-- **Make.com**: Google Calendar → Sheets (daily 08:00). Работает.
-- **n8n**: `https://n8n-production-e175.up.railway.app` — готов для Telegram-бота и Claude-интеграции.
+- **Make.com**: старый сценарий «Integration Google Calendar» (Calendar → Sheets every 15 min). Упёрся в лимит 1000 ops/мес, исчерпан 15 апреля. Также был баг: `singleEvents: false` — повторяющиеся события не разворачивались в экземпляры на день. Заменяется на n8n. После запуска n8n — отключить.
+- **n8n**: `https://n8n-production-e175.up.railway.app` — три workflow готовы (gcal-sync, morning-digest, weekly-digest). Без лимитов операций.
 - **GitHub Actions**: два workflow в `.github/workflows/`:
   - `garmin-sync.yml` — cron 08:05 МСК, актуальный.
   - `pages.yml` — деплой `dashboard/` на Pages при пуше (вручную через workflow_dispatch тоже).

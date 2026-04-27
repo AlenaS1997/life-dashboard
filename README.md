@@ -30,7 +30,8 @@ LifeDashboard/
 │   ├── manifest.webmanifest
 │   ├── icon.svg
 │   └── README.md
-├── n8n/                         # Telegram-боты с Claude-дайджестами
+├── n8n/                         # workflow-файлы для n8n
+│   ├── gcal-sync-workflow.json         # Google Calendar → Sheets, ежедневно 08:00 МСК
 │   ├── morning-digest-workflow.json    # утренний дайджест 08:30 МСК
 │   ├── weekly-digest-workflow.json     # недельный итог вс 19:00 МСК
 │   ├── claude-prompt.md

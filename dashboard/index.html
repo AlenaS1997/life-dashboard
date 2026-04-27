@@ -581,7 +581,7 @@
     const result = [];
     for (const row of rows) {
       const start = row.start || row.start_time || row.begin || row.date || "";
-      const title = row.summary || row.title || row.name || row.event || "";
+      const title = row.summary || row.title || row.name || row.event || row.event_title || "";
       if (!title) continue;
       // Фильтр по сегодня, если start выглядит как ISO datetime
       if (start.length >= 10 && start.slice(0, 10) !== today) continue;

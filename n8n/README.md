@@ -1,13 +1,68 @@
-# n8n: Telegram-дайджесты
+# n8n: workflow-файлы
 
-В папке два workflow-файла:
+В папке три workflow-файла:
 
 | Файл | Когда | Что делает |
 |------|-------|-----------|
+| `gcal-sync-workflow.json` | Каждый день 08:00 МСК | Синхронизирует события Google Calendar на сегодня в `gcal_events`. Заменяет старый Make.com сценарий — без лимитов, без дублей, идемпотентно (Clear → Append). |
 | `morning-digest-workflow.json` | Каждое утро 08:30 МСК | Короткий тёплый дайджест: вчерашний сон/HRV/шаги/стресс + события дня + один инсайт. |
 | `weekly-digest-workflow.json` | Каждое воскресенье 19:00 МСК | Итог недели: что улучшилось, что просело, лучший день, фокус на следующую неделю. |
 
-Оба workflow — на встроенных нодах n8n (Schedule Trigger → Set → HTTP Request → Code → HTTP Request → Telegram). Никаких сторонних community-нод.
+Все workflow — на встроенных нодах n8n. Никаких сторонних community-нод.
+
+## gcal-sync — отдельная инструкция
+
+Этот workflow заменяет Make.com-сценарий «Integration Google Calendar», который упирался в лимит 1000 операций/мес на бесплатном плане. n8n у тебя на Railway — без лимитов.
+
+### Импорт и настройка (один раз)
+
+1. **Импортируй файл.** В n8n: Workflows → `+` → `Import from file` → `gcal-sync-workflow.json`.
+2. **Создай Google credential.** Credentials → `+` → `Google Calendar OAuth2 API` → Sign in with Google → разреши доступ к Calendar и Sheets (n8n спросит оба scope). Назови, например, `Google (Алёна)`. Этот же credential подойдёт и для Google Sheets-нод — n8n сам подхватит.
+3. **Подставь credential в три ноды:**
+   - `Получить события дня` (Google Calendar)
+   - `Очистить gcal_events (кроме заголовка)` (Google Sheets)
+   - `Append в gcal_events` (Google Sheets)
+4. **Проверь конфиг.** Открой ноду `Конфиг`:
+   - `sheet_id` — уже подставлен (`1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE`).
+   - `events_tab` — `gcal_events`.
+   - `calendar_id` — `savchenko.alena.27071997@gmail.com`. Если хочешь брать события всех календарей — поменяй на `primary`.
+5. **Тест.** Жми «Execute workflow» (правый верхний). Все ноды должны стать зелёными. В Sheets вкладка `gcal_events` обновится: только заголовок + сегодняшние события.
+6. **Active.** Тумблер ON в верхнем правом углу.
+7. **Отключи Make.** В Make.com открой сценарий «Integration Google Calendar» → тумблер Active → OFF. Чтобы зря не тратил оставшиеся операции.
+
+### Логика workflow
+
+```
+Schedule 08:00 МСК
+  ↓
+Конфиг (sheet_id, calendar_id, events_tab)
+  ↓
+Получить события дня
+  (Google Calendar, singleEvents=true, диапазон [00:00; 23:59] сегодня)
+  ↓
+Маппим в строки таблицы
+  (Code: date, event_title, start_time, end_time, calendar)
+  ↓
+Очистить gcal_events кроме заголовка
+  (Google Sheets clear, строки 2..5001)
+  ↓
+Есть ли события?
+  (IF: если 0 событий — append пропускаем)
+  ↓ (если да)
+Append в gcal_events
+  (Google Sheets append)
+```
+
+### Почему дублей теперь не будет
+
+- **`singleEvents: true`** — повторяющиеся события (Подъём, Зал, Дорога) раскрываются в индивидуальные экземпляры на сегодня. Make при `singleEvents: false` этого не делал, поэтому таблица была пустой.
+- **Сначала Clear, потом Append** — таблица всегда содержит **ровно сегодняшние события**. Сколько бы раз ни запустил вручную — дублей быть не может в принципе.
+- **Guard на пустой массив** — если на сегодня событий нет, append пропускаем, таблица остаётся с одним заголовком, дашборд корректно покажет «На сегодня событий нет».
+- **Retry на сеть** — все три HTTP-ноды с `retryOnFail: true, maxTries: 3`. Кратковременные сбои Google API не убивают синк.
+
+---
+
+## Telegram-дайджесты — настройка
 
 ## Когда импортировать
 
