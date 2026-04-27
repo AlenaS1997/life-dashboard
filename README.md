@@ -25,22 +25,25 @@ LifeDashboard/
 ├── scripts/
 │   └── garmin_sync.py           # Garmin → Google Sheets
 ├── dashboard/                   # iPhone-дашборд (HTML, деплоится на GitHub Pages)
-│   ├── index.html
+│   ├── index.html               # вся страница: HTML+CSS+JS, погода, тренды, события
+│   ├── sw.js                    # Service Worker для offline-кэша
 │   ├── manifest.webmanifest
 │   ├── icon.svg
 │   └── README.md
-├── n8n/                         # Каркас Telegram-бота с Claude-дайджестом
-│   ├── morning-digest-workflow.json
+├── n8n/                         # Telegram-боты с Claude-дайджестами
+│   ├── morning-digest-workflow.json    # утренний дайджест 08:30 МСК
+│   ├── weekly-digest-workflow.json     # недельный итог вс 19:00 МСК
 │   ├── claude-prompt.md
 │   └── README.md
 ├── .secrets/
 │   ├── service-account.json     # Ключ Google сервис-аккаунта (в .gitignore!)
 │   └── garth/                   # OAuth-токены Garmin (в .gitignore!)
 ├── data/                        # Кэш сессий, промежуточные данные
-├── reports/                     # Логи запусков (garmin_YYYY-MM-DD.log)
+├── reports/                     # Отчёты + логи запусков (garmin_YYYY-MM-DD.log)
 └── .github/
     └── workflows/
-        └── garmin-sync.yml      # GitHub Actions cron (ежедневный запуск)
+        ├── garmin-sync.yml      # cron 08:05 МСК — Garmin → Sheets
+        └── pages.yml            # деплой dashboard/ на GitHub Pages
 ```
 
 ## Локальный запуск (на Mac)
@@ -123,17 +126,22 @@ Workflow `.github/workflows/garmin-sync.yml` запускается ежедне
 
 ## Дашборд и Telegram-дайджест
 
-- **Дашборд**: см. `dashboard/README.md`. Одностраничное HTML-приложение, добавляется на домашний экран iPhone через Safari. Читает данные из публичного CSV-экспорта Google Sheets, без backend.
-- **Telegram-дайджест**: см. `n8n/README.md`. Готовый workflow для n8n: cron 08:30 МСК → читает Sheets → просит Claude написать дайджест → шлёт в Telegram.
+- **Дашборд**: см. `dashboard/README.md`. Одностраничное HTML-приложение, открывается по `https://alenas1997.github.io/life-dashboard/`, добавляется на домашний экран iPhone через Safari. Читает данные из публичного CSV-экспорта Google Sheets, без backend. Service Worker (`sw.js`) кэширует статику и последние данные для offline.
+- **Telegram-дайджест**: см. `n8n/README.md`. Два готовых workflow для n8n:
+  - утренний (cron 08:30 МСК) — короткий тёплый дайджест с инсайтом дня;
+  - воскресный недельный (cron вс 19:00 МСК) — итог недели с агрегатами и фокусом на следующую.
+  Оба с retry на сеть и fallback-сообщением при провале Claude.
 
 ## Roadmap
 
-- [x] Garmin → Google Sheets (manual)
+- [x] Garmin → Google Sheets (manual + GitHub Actions cron)
 - [x] Кэш garth-токенов для обхода 429
-- [x] HTML-дашборд MVP (локально)
-- [ ] GitHub Actions cron (пуш репо + секреты)
-- [ ] Публикация дашборда на GitHub Pages + добавить на iPhone
-- [ ] n8n + Claude: утренний Telegram-дайджест (файлы готовы, импорт в Дни 5–6)
+- [x] HTML-дашборд MVP
+- [x] Деплой дашборда на GitHub Pages (через `.github/workflows/pages.yml`)
+- [x] Погода (Open-Meteo) + Service Worker offline-кэш + skeleton-лоадер
+- [x] Detect закрытой Sheets с понятной инструкцией
+- [x] n8n утренний + воскресный workflow’ы готовы
+- [ ] Активация Telegram-бота (Дни 5–6: BotFather + Anthropic API key)
 - [ ] FatSecret → Sheets (когда будет доступ)
 - [ ] Whoop (опционально)
 
