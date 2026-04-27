@@ -73,7 +73,10 @@
       "name": "Тянем Garmin CSV",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 200]
+      "position": [680, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -90,7 +93,11 @@
       "name": "Тянем события дня",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 400]
+      "position": [680, 400],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -130,18 +137,22 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1120, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 10000,
+      "continueOnFail": true,
       "credentials": {
         "httpHeaderAuth": {
           "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
           "name": "Anthropic x-api-key"
         }
       },
-      "notes": "Credential: Header Auth, имя заголовка = x-api-key, значение = твой ANTHROPIC_API_KEY."
+      "notes": "Credential: Header Auth, имя заголовка = x-api-key, значение = твой ANTHROPIC_API_KEY. При сбое (rate limit, таймаут) повторяем 3 раза с паузой 10с; если все попытки упали — Telegram-узел отправит fallback-сообщение с сырыми метриками."
     },
     {
       "parameters": {
         "chatId": "={{ $('Конфиг').item.json.telegram_chat_id }}",
-        "text": "={{ $json.content[0].text }}",
+        "text": "={{ ($json.content && $json.content[0] && $json.content[0].text) ? $json.content[0].text : ('⚠️ *Дайджест не сформирован* (сбой Claude API после 3 попыток).\\n\\n*Вчера:*\\n• Сон: ' + ($('Собираем контекст').item.json.latest.sleep_hours || '—') + ' ч (score ' + ($('Собираем контекст').item.json.latest.sleep_score || '—') + ')\\n• HRV: ' + ($('Собираем контекст').item.json.latest.hrv_last_night || '—') + ' мс\\n• Шаги: ' + ($('Собираем контекст').item.json.latest.steps || '—') + '\\n• Стресс: ' + ($('Собираем контекст').item.json.latest.stress_avg || '—') + '/100\\n\\nДанные живые из Sheets, инсайт допиши руками.') }}",
         "additionalFields": {
           "parse_mode": "Markdown"
         }
