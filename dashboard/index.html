@@ -25,7 +25,6 @@
       --stress: #ff7043;
       --battery: #ffca28;
       --score: #ec407a;
-      --weather: #80d8ff;
       --border: #2a2a2a;
       --radius: 18px;
       --radius-sm: 12px;
@@ -96,53 +95,6 @@
       margin-bottom: 14px;
     }
 
-    /* Weather strip */
-    .weather {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 14px 16px;
-    }
-    .weather-icon {
-      font-size: 32px;
-      line-height: 1;
-      width: 40px;
-      text-align: center;
-    }
-    .weather-main {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      flex: 1;
-      min-width: 0;
-    }
-    .weather-temp {
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1;
-    }
-    .weather-temp .unit {
-      font-size: 14px;
-      color: var(--text-dim);
-      font-weight: 500;
-      margin-left: 1px;
-    }
-    .weather-sub {
-      font-size: 12px;
-      color: var(--text-dim);
-      margin-top: 4px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .weather-extra {
-      font-size: 12px;
-      color: var(--text-dim);
-      text-align: right;
-      line-height: 1.5;
-      flex-shrink: 0;
-    }
 
     /* Today metrics grid */
     .today-grid {
@@ -455,15 +407,6 @@
       <p id="today-date">—</p>
     </header>
 
-    <section id="weather-section" class="weather" style="display:none">
-      <div class="weather-icon" id="weather-icon">⛅</div>
-      <div class="weather-main">
-        <div class="weather-temp"><span id="weather-temp">—</span><span class="unit">°</span></div>
-        <div class="weather-sub" id="weather-sub">Погода</div>
-      </div>
-      <div class="weather-extra" id="weather-extra"></div>
-    </section>
-
     <div id="banner" style="display:none"></div>
 
     <section>
@@ -579,12 +522,6 @@
     EVENTS_TAB: "gcal_events",
     // true — всегда показывать demo-данные (для превью дизайна)
     FORCE_MOCK: false,
-    // Координаты для блока погоды (по умолчанию — Москва)
-    WEATHER: {
-      lat: 55.7558,
-      lon: 37.6173,
-      tz: "Europe/Moscow",
-    },
   };
 
   const CACHE_KEY = "life-dashboard:cache:v1";
@@ -700,71 +637,6 @@
   }
 
   // ============================================================
-  // ДАННЫЕ — Open-Meteo (погода без API-ключа)
-  // ============================================================
-  async function fetchWeather() {
-    const w = CONFIG.WEATHER;
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${w.lat}&longitude=${w.lon}` +
-                `&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m` +
-                `&timezone=${encodeURIComponent(w.tz)}`;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`weather HTTP ${res.status}`);
-    const data = await res.json();
-    return data.current || {};
-  }
-
-  function weatherEmoji(code) {
-    if (code === 0) return "☀️";
-    if (code >= 1 && code <= 2) return "⛅";
-    if (code === 3) return "☁️";
-    if (code === 45 || code === 48) return "🌫️";
-    if (code >= 51 && code <= 57) return "🌦️";
-    if (code >= 61 && code <= 67) return "🌧️";
-    if (code >= 71 && code <= 77) return "❄️";
-    if (code >= 80 && code <= 82) return "🌦️";
-    if (code === 85 || code === 86) return "🌨️";
-    if (code >= 95) return "⛈️";
-    return "🌤️";
-  }
-
-  function weatherDescription(code) {
-    if (code === 0) return "Ясно";
-    if (code === 1) return "Преимущ. ясно";
-    if (code === 2) return "Переменная облачность";
-    if (code === 3) return "Пасмурно";
-    if (code === 45 || code === 48) return "Туман";
-    if (code >= 51 && code <= 57) return "Морось";
-    if (code === 61) return "Небольшой дождь";
-    if (code === 63) return "Дождь";
-    if (code === 65) return "Сильный дождь";
-    if (code >= 66 && code <= 67) return "Ледяной дождь";
-    if (code >= 71 && code <= 75) return "Снег";
-    if (code === 77) return "Снежные зёрна";
-    if (code >= 80 && code <= 82) return "Ливни";
-    if (code === 85 || code === 86) return "Снегопад";
-    if (code === 95) return "Гроза";
-    if (code === 96 || code === 99) return "Гроза с градом";
-    return "—";
-  }
-
-  function renderWeather(w) {
-    const sec = document.getElementById("weather-section");
-    if (!w || w.temperature_2m == null) {
-      sec.style.display = "none";
-      return;
-    }
-    sec.style.display = "flex";
-    document.getElementById("weather-icon").textContent = weatherEmoji(w.weather_code);
-    document.getElementById("weather-temp").textContent = Math.round(w.temperature_2m);
-    const feels = Math.round(w.apparent_temperature);
-    document.getElementById("weather-sub").textContent =
-      `${weatherDescription(w.weather_code)} · ощущается как ${feels}°`;
-    const wind = Math.round(w.wind_speed_10m);
-    const precip = Number(w.precipitation) || 0;
-    document.getElementById("weather-extra").innerHTML =
-      `Ветер ${wind} м/с${precip > 0 ? `<br>Осадки ${precip} мм` : ""}`;
-  }
-
   // ============================================================
   // КЭШ — localStorage (на случай оффлайна / закрытой Sheets)
   // ============================================================
@@ -1054,14 +926,6 @@
   async function load() {
     renderHeader();
     hideBanner();
-
-    // Погода — параллельно, не блокирует основной флоу
-    fetchWeather().then(renderWeather).catch((e) => {
-      console.warn("Погода недоступна:", e.message);
-      // Если в кэше была погода — отрендерим её
-      const cached = loadCache();
-      if (cached && cached.weather) renderWeather(cached.weather);
-    });
 
     let garminRows = [];
     let eventRows = [];
