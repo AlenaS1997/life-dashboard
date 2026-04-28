@@ -36,9 +36,21 @@
               "type": "string"
             },
             {
+              "id": "calendar-id",
+              "name": "calendar_id",
+              "value": "savchenko.alena.27071997@gmail.com",
+              "type": "string"
+            },
+            {
               "id": "chat-id",
               "name": "telegram_chat_id",
               "value": "REPLACE_ME_WITH_YOUR_CHAT_ID",
+              "type": "string"
+            },
+            {
+              "id": "dashboard-url",
+              "name": "dashboard_url",
+              "value": "https://alenas1997.github.io/life-dashboard/",
               "type": "string"
             }
           ]
@@ -63,20 +75,49 @@
         }
       },
       "id": "fetch-garmin",
-      "name": "Тянем Garmin CSV",
+      "name": "Тянем Garmin CSV (история)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 300],
+      "position": [680, 200],
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 5000
+      "waitBetweenTries": 5000,
+      "notes": "Тянем всю историю Garmin для расчёта 7/14/30 средних и сравнений."
     },
     {
       "parameters": {
-        "jsCode": "// Парсим CSV, считаем агрегаты за последние 7 дней и сравниваем с предыдущей неделей.\nconst raw = $('Тянем Garmin CSV').item.json.data || $('Тянем Garmin CSV').item.json;\n\nfunction parseCsv(text) {\n  if (typeof text !== 'string') text = String(text);\n  const lines = text.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\n\nfunction num(v) {\n  if (v == null || v === '') return NaN;\n  if (typeof v === 'number') return v;\n  const cleaned = String(v).replace(/[\\s\\u00A0]/g, '').replace(',', '.');\n  const n = parseFloat(cleaned);\n  return isFinite(n) ? n : NaN;\n}\n\nconst rows = parseCsv(raw)\n  .filter(r => r.date)\n  .sort((a, b) => (a.date || '').localeCompare(b.date || ''));\n\nconst lastWeek = rows.slice(-7);\nconst prevWeek = rows.slice(-14, -7);\n\nfunction stats(weekRows, key) {\n  const nums = weekRows.map(r => num(r[key])).filter(v => isFinite(v));\n  if (!nums.length) return null;\n  const sum = nums.reduce((a, b) => a + b, 0);\n  return {\n    avg: sum / nums.length,\n    min: Math.min(...nums),\n    max: Math.max(...nums),\n    count: nums.length,\n  };\n}\n\nfunction delta(current, previous) {\n  if (!current || !previous) return null;\n  return current.avg - previous.avg;\n}\n\nconst keys = ['sleep_hours', 'sleep_score', 'hrv_last_night', 'steps', 'stress_avg', 'body_battery_max'];\nconst summary = {};\nfor (const k of keys) {\n  const cur = stats(lastWeek, k);\n  const prev = stats(prevWeek, k);\n  summary[k] = {\n    current: cur ? Number(cur.avg.toFixed(1)) : null,\n    previous: prev ? Number(prev.avg.toFixed(1)) : null,\n    delta: cur && prev ? Number((cur.avg - prev.avg).toFixed(1)) : null,\n    min: cur ? Number(cur.min.toFixed(1)) : null,\n    max: cur ? Number(cur.max.toFixed(1)) : null,\n  };\n}\n\nconst payload = {\n  week_start: lastWeek[0]?.date || null,\n  week_end: lastWeek[lastWeek.length - 1]?.date || null,\n  days_count: lastWeek.length,\n  summary,\n};\n\nreturn [{ json: payload }];"
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.calendar_id }}",
+          "mode": "id"
+        },
+        "returnAll": true,
+        "options": {
+          "singleEvents": true,
+          "timeMin": "={{ $now.minus({days:14}).startOf('day').toISO() }}",
+          "timeMax": "={{ $now.endOf('day').toISO() }}",
+          "orderBy": "startTime"
+        }
+      },
+      "id": "fetch-calendar",
+      "name": "Календарь за 14 дней",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [680, 400],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true,
+      "notes": "Тянем события последних 14 дней (текущая неделя + предыдущая) для анализа: вечерние встречи → провисы по сну/HRV. Использует тот же Google credential, что и gcal-sync / morning-digest."
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// Аналитика для воскресного итога недели.\n// Считаем тренды (7/14/30), streak'и, лучший/худший день недели,\n// статистику событий, связи с вечерней нагрузкой.\n// =====================================================================\n\nconst raw = $('Тянем Garmin CSV (история)').item.json.data || $('Тянем Garmin CSV (история)').item.json;\n\nlet calendarEvents = [];\ntry {\n  const calItems = $('Календарь за 14 дней').all();\n  calendarEvents = calItems.map(i => i.json).filter(Boolean);\n} catch (e) {\n  calendarEvents = [];\n}\n\n// ---------- CSV parser ----------\nfunction parseCsv(raw) {\n  if (typeof raw !== 'string') raw = String(raw);\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\nconst rows = parseCsv(raw).filter(r=>r.date).sort((a,b)=>(a.date||'').localeCompare(b.date||''));\n\n// ---------- helpers ----------\nconst num = (v) => {\n  if (v == null || v === '') return NaN;\n  if (typeof v === 'number') return v;\n  const cleaned = String(v).replace(/[\\s\\u00A0]/g,'').replace(',','.');\n  const n = parseFloat(cleaned);\n  return isFinite(n) ? n : NaN;\n};\nconst avg = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  if (!ys.length) return null;\n  return ys.reduce((a,b)=>a+b,0)/ys.length;\n};\nconst round = (v, d=1) => v == null ? null : Number(v.toFixed(d));\nconst minOf = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  return ys.length ? Math.min(...ys) : null;\n};\nconst maxOf = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  return ys.length ? Math.max(...ys) : null;\n};\n\n// ---------- Окна ----------\nconst last7  = rows.slice(-7);\nconst prev7  = rows.slice(-14, -7);\nconst last14 = rows.slice(-14);\nconst last30 = rows.slice(-30);\n\nconst metricKeys = ['sleep_hours','sleep_score','hrv_last_night','steps','stress_avg','body_battery_min','body_battery_max'];\nconst lowerIsBetter = { stress_avg: true };\n\n// ---------- Тренды (7d/14d/30d средние + дельты + min/max за неделю) ----------\nconst trends = {};\nfor (const k of metricKeys) {\n  const a7 = avg(last7.map(r=>r[k]));\n  const a14 = avg(last14.map(r=>r[k]));\n  const a30 = avg(last30.map(r=>r[k]));\n  const aPrev7 = avg(prev7.map(r=>r[k]));\n  const min7 = minOf(last7.map(r=>r[k]));\n  const max7 = maxOf(last7.map(r=>r[k]));\n  const decimals = (k === 'sleep_hours') ? 1 : 0;\n  trends[k] = {\n    avg_7d: round(a7, decimals),\n    avg_14d: round(a14, decimals),\n    avg_30d: round(a30, decimals),\n    min_7d: round(min7, decimals),\n    max_7d: round(max7, decimals),\n    delta_vs_prev_week_pct: (a7 != null && aPrev7 != null && aPrev7 !== 0)\n      ? Math.round((a7 - aPrev7) / Math.abs(aPrev7) * 100) : null,\n    delta_7d_vs_30d_pct: (a7 != null && a30 != null && a30 !== 0)\n      ? Math.round((a7 - a30) / Math.abs(a30) * 100) : null,\n  };\n}\n\n// ---------- Streak'и (сколько подряд дней метрика хуже 30d-базы) ----------\nfunction streakWorseThanBaseline(rows, key, baseline, lowerIsBetterFlag) {\n  if (baseline == null) return 0;\n  let count = 0;\n  for (let i = rows.length - 1; i >= 0; i--) {\n    const v = num(rows[i][key]);\n    if (!isFinite(v)) break;\n    const worse = lowerIsBetterFlag ? (v > baseline) : (v < baseline);\n    if (worse) count++; else break;\n  }\n  return count;\n}\nconst streaks = {};\nfor (const k of metricKeys) {\n  streaks[k] = streakWorseThanBaseline(rows, k, trends[k].avg_30d, !!lowerIsBetter[k]);\n}\n\n// ---------- Календарь по дням ----------\nfunction toLocalDateStr(iso) {\n  const m = String(iso).match(/^(\\d{4}-\\d{2}-\\d{2})/);\n  return m ? m[1] : '';\n}\nfunction localHour(iso) {\n  const m = String(iso).match(/T(\\d{2}):(\\d{2})/);\n  return m ? parseInt(m[1], 10) : null;\n}\nconst eventsByDay = {};\nfor (const ev of calendarEvents) {\n  const startIso = (ev.start && (ev.start.dateTime || ev.start.date)) || '';\n  const day = toLocalDateStr(startIso);\n  if (!day) continue;\n  const hour = localHour(startIso);\n  (eventsByDay[day] ||= []).push({\n    title: ev.summary || '',\n    hour,\n    is_evening: hour != null && hour >= 18,\n    is_late: hour != null && hour >= 21,\n  });\n}\n\n// ---------- Дневной контекст за last 14 дней (для связей и сравнения) ----------\nconst dailyContext = last14.map(r => {\n  const d = r.date;\n  const evs = eventsByDay[d] || [];\n  return {\n    date: d,\n    weekday: d ? new Date(d).toLocaleDateString('ru-RU', { weekday: 'short' }) : '',\n    sleep_hours: round(num(r.sleep_hours), 1),\n    sleep_score: num(r.sleep_score) || null,\n    hrv: num(r.hrv_last_night) || null,\n    stress: num(r.stress_avg) || null,\n    steps: num(r.steps) || null,\n    body_battery_min: num(r.body_battery_min) || null,\n    events_total: evs.length,\n    events_evening: evs.filter(e => e.is_evening).length,\n    events_late: evs.filter(e => e.is_late).length,\n  };\n});\n\n// ---------- Лучший / худший день недели (композитный score) ----------\n// Нормализуем к 0..1 (для стресса инвертируем) и складываем.\nfunction dayScore(d) {\n  // Простая эвристика: чем выше sleep_score, hrv, чем ниже stress — тем лучше.\n  // body_battery_min тоже учитываем со знаком плюс.\n  const sleepScore = d.sleep_score || 0;       // 0..100\n  const hrv = d.hrv || 0;                       // обычно 20..70\n  const stress = d.stress || 50;                // 0..100, ниже = лучше\n  const bb = d.body_battery_min || 0;           // 0..100\n  return (sleepScore / 100) * 0.35\n       + (Math.min(hrv, 70) / 70) * 0.30\n       + (1 - (stress / 100)) * 0.20\n       + (bb / 100) * 0.15;\n}\nconst weekDays = dailyContext.slice(-7).filter(d => d.sleep_score != null);\nlet bestDay = null, worstDay = null;\nif (weekDays.length) {\n  const scored = weekDays.map(d => ({ ...d, score: dayScore(d) }));\n  scored.sort((a, b) => b.score - a.score);\n  bestDay = { date: scored[0].date, weekday: scored[0].weekday, score: round(scored[0].score, 2),\n              sleep_hours: scored[0].sleep_hours, sleep_score: scored[0].sleep_score,\n              hrv: scored[0].hrv, stress: scored[0].stress, events_total: scored[0].events_total,\n              events_evening: scored[0].events_evening };\n  worstDay = { date: scored[scored.length-1].date, weekday: scored[scored.length-1].weekday,\n               score: round(scored[scored.length-1].score, 2),\n               sleep_hours: scored[scored.length-1].sleep_hours,\n               sleep_score: scored[scored.length-1].sleep_score,\n               hrv: scored[scored.length-1].hrv, stress: scored[scored.length-1].stress,\n               events_total: scored[scored.length-1].events_total,\n               events_evening: scored[scored.length-1].events_evening };\n}\n\n// ---------- Сводка по событиям за неделю ----------\nconst eventsWeekRows = dailyContext.slice(-7);\nconst eventsPrevWeekRows = dailyContext.slice(-14, -7);\nconst sumField = (rows, k) => rows.reduce((a, r) => a + (r[k] || 0), 0);\nconst events_summary = {\n  this_week: {\n    total: sumField(eventsWeekRows, 'events_total'),\n    evening: sumField(eventsWeekRows, 'events_evening'),\n    late: sumField(eventsWeekRows, 'events_late'),\n    days_with_late: eventsWeekRows.filter(r => (r.events_late || 0) > 0).length,\n  },\n  prev_week: {\n    total: sumField(eventsPrevWeekRows, 'events_total'),\n    evening: sumField(eventsPrevWeekRows, 'events_evening'),\n    late: sumField(eventsPrevWeekRows, 'events_late'),\n    days_with_late: eventsPrevWeekRows.filter(r => (r.events_late || 0) > 0).length,\n  },\n};\n\n// ---------- Финальный payload ----------\nconst payload = {\n  week_start: last7[0]?.date || null,\n  week_end: last7[last7.length - 1]?.date || null,\n  days_count: last7.length,\n  trends,\n  streaks,\n  daily_last_14: dailyContext,\n  best_day: bestDay,\n  worst_day: worstDay,\n  events_summary,\n  dashboard_url: $('Конфиг').item.json.dashboard_url,\n};\n\nreturn [{ json: payload }];"
       },
       "id": "build-context",
-      "name": "Считаем агрегаты за неделю",
+      "name": "Считаем тренды и связи (неделя)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [900, 300]
@@ -102,7 +143,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 800,\n  \"system\": \"Ты — персональный аналитик Алёны. По воскресеньям пишешь ей итог недели в Telegram на русском. Короткий, без воды, без морализаторства. Формат строго:\\n\\n📊 *Итоги недели*\\n\\n*Что улучшилось:*\\n• ... (1-3 пункта, с цифрами и сравнением с прошлой неделей)\\n\\n*Что просело:*\\n• ... (1-2 пункта, мягко)\\n\\n*Самый сильный день:* день недели + почему (например, лучший сон или HRV).\\n\\n*Фокус на следующую неделю:* одно конкретное наблюдение или микро-эксперимент. Не «надо больше спать», а что-то измеримое: «попробуй лечь до 23:00 хотя бы 4 раза», «понаблюдай за HRV после кардио».\\n\\nЕсли цифр недостаточно (меньше 4 дней) — честно скажи: 'Слишком мало данных для итогов, продолжаем копить'. Используй Markdown (звёздочки для жирного). Округляй числа.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}"
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1800,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery + календарь). По воскресеньям пишешь в Telegram итог прошедшей недели: что произошло, почему, тенденция, конкретный эксперимент на следующую неделю.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров.\\n\\nФормат ответа СТРОГО такой:\\n\\n📊 *Итоги недели* ({week_start}–{week_end})\\n\\n*Главное:* 1–2 строки самого важного, что произошло за неделю. Опирайся на сильные сдвиги (delta_vs_prev_week_pct >= 15 %, или streak'и >= 3 дней). Пример: «HRV всю неделю ниже месячной базы (40 vs 43), четыре дня подряд с 24 числа. Стресс +18 % к предыдущей неделе».\\n\\n*Что улучшилось:* 1–3 пункта с конкретными цифрами из trends. Сравнивай и с прошлой неделей (delta_vs_prev_week_pct), и с месячной базой (delta_7d_vs_30d_pct). Если улучшений нет — пропусти блок.\\n\\n*Что просело:* 1–2 пункта, мягко. С теми же цифрами. Если ничего сильно не просело — пропусти блок.\\n\\n*Сильный день:* {best_day.weekday} — sleep_hours, sleep_score, HRV, stress + кол-во встреч. Без отдельной фразы «потому что» — просто факты в строку. Пример: «пятница — sleep 7,6 ч (82) · HRV 43 · стресс 28 · 2 встречи, без вечерних».\\n\\n*Слабый день:* {worst_day.weekday} — то же самое, факты в строку. Пример: «среда — sleep 6,5 ч (71) · HRV 35 · стресс 48 · 8 встреч, 3 вечерних».\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками и календарём. Опирайся на daily_last_14 и events_summary. Сравнивай эту неделю с предыдущей по нагрузке. Пример: «эта неделя — 12 вечерних встреч против 6 предыдущей. На этом отрезке HRV сполз с 43 до 36, sleep score держится 78». Если связей не видно — пропусти блок.\\n\\n*Эксперимент на неделю:* ровно ОДНА строка с конкретным измеримым действием на основе подмеченной связи. Пример: «оставь свободными вечера пн–ср (после 19:00 пусто), посмотри как пройдёт HRV. Цель — вернуть к 43». Если связи не нашлось — пропусти блок (лучше тишина, чем шаблонный «больше отдыхай»).\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила анализа:\\n— Округляй: сон до десятых, всё остальное до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней по любой метрике — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % или delta_7d_vs_30d_pct >= 15 % — отметь как «сильный сдвиг».\\n— Связи строй ТОЛЬКО на данных из daily_last_14 (events_evening, events_late, sleep, hrv) и events_summary. Не выдумывай.\\n— Никаких советов из учебника («больше воды», «гуляй», «слушай тело»). Только то, что следует из ТВОИХ данных.\\n— Если days_count < 4 — отвечай: '📊 *Итоги недели:* слишком мало данных (меньше 4 дней), продолжаем копить.' и заверши на этом.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без буллетов.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}"
       },
       "id": "claude",
       "name": "Claude: пишет недельный итог",
@@ -119,12 +160,12 @@
           "name": "Anthropic x-api-key"
         }
       },
-      "notes": "Тот же credential, что и у утреннего workflow."
+      "notes": "Тот же credential, что и для morning-digest (Anthropic x-api-key через Header Auth)."
     },
     {
       "parameters": {
         "chatId": "={{ $('Конфиг').item.json.telegram_chat_id }}",
-        "text": "={{ ($json.content && $json.content[0] && $json.content[0].text) ? $json.content[0].text : ('📊 *Итоги недели* (Claude недоступен)\\n\\nДней с данными: ' + $('Считаем агрегаты за неделю').item.json.days_count + '\\nСредний сон: ' + ($('Считаем агрегаты за неделю').item.json.summary.sleep_hours.current || '—') + ' ч\\nСредний HRV: ' + ($('Считаем агрегаты за неделю').item.json.summary.hrv_last_night.current || '—') + ' мс\\nСредние шаги: ' + ($('Считаем агрегаты за неделю').item.json.summary.steps.current || '—') + '\\n\\nИнсайт допиши руками.') }}",
+        "text": "={{ ($json.content && $json.content[0] && $json.content[0].text) ? $json.content[0].text : ('⚠️ *Недельный итог не сформирован* (Claude API недоступен после 3 попыток).\\n\\nЦифры за неделю — на дашборде: ' + $('Конфиг').item.json.dashboard_url) }}",
         "additionalFields": {
           "parse_mode": "Markdown"
         }
@@ -158,25 +199,41 @@
       "main": [
         [
           {
-            "node": "Тянем Garmin CSV",
+            "node": "Тянем Garmin CSV (история)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Календарь за 14 дней",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Тянем Garmin CSV": {
+    "Тянем Garmin CSV (история)": {
       "main": [
         [
           {
-            "node": "Считаем агрегаты за неделю",
+            "node": "Считаем тренды и связи (неделя)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Считаем агрегаты за неделю": {
+    "Календарь за 14 дней": {
+      "main": [
+        [
+          {
+            "node": "Считаем тренды и связи (неделя)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Считаем тренды и связи (неделя)": {
       "main": [
         [
           {

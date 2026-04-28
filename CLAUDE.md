@@ -33,38 +33,48 @@
 - Чтение данных — через публичный CSV-экспорт Google Sheets (без auth для read-only).
 - Деплой: GitHub Pages (публичный репо без чувствительных данных) или Cloudflare Pages (если приватный).
 
-## Текущее состояние (по состоянию на 2026-04-28 утро)
+## Текущее состояние (по состоянию на 2026-04-28, утро после второй ночной сессии)
 
 **Сделано:**
-- Структура папки: `scripts/`, `dashboard/`, `n8n/`, `data/`, `reports/`, `.secrets/`, `.github/workflows/`.
+- Структура папки: `scripts/`, `tests/`, `dashboard/`, `n8n/`, `data/`, `reports/`, `.secrets/`, `.github/workflows/`.
 - `.env`, `.gitignore`, `.env.example`, `requirements.txt` — готовы.
-- `scripts/garmin_sync.py`:
-  - бэкофф на 429, логирование, правильные эндпоинты для HRV и Body Battery;
-  - идемпотентная запись в Sheets (row 1 как source-of-truth для порядка колонок);
-  - кэш сессии garth в `.secrets/garth/` через модульный `garth.resume()/save()` (с fallback’ами под разные версии библиотеки).
+- `scripts/garmin_sync.py` — Garmin → Sheets с бэкофом 429, кэшем garth-токенов, идемпотентной записью.
+- `scripts/clear_gcal_events.py` — одноразовая чистка вкладки `gcal_events` от мусора Make.com.
+- `tests/test_garmin_sync.py` — 22 unit-теста на парсеры HRV / Body Battery / fetch_garmin_data (через моки). Все зелёные.
 - Service account создан, Sheets/Drive API включены, JSON в `.secrets/service-account.json`.
-- Python 3.11 через Homebrew. Live-run’ы стабильно проходят.
-- **GitHub репо** `AlenaS1997/life-dashboard` (public) поднят, 5 секретов в Actions, токен PAT у Алёны в Mac keychain.
-- **GitHub Actions cron** `garmin-sync.yml` — каждый день 08:05 МСК, `actions/cache` на garth-токены, успешные runs.
-- **GitHub Pages** через отдельный workflow `pages.yml` — собирает `dashboard/` через `actions/upload-pages-artifact` + `actions/deploy-pages`. URL: `https://alenas1997.github.io/life-dashboard/`.
-- **Дашборд `dashboard/index.html`** — iPhone-first, тёмная тема, гviz CSV, погода (Open-Meteo, без ключа), skeleton-лоадер, detect закрытой Sheets с понятным баннером, локаль-устойчивый парсер чисел, localStorage кэш.
-- **Service Worker `dashboard/sw.js`** — offline-кэш статики и API (network-first для CSV/погоды, cache-first для статики).
-- **n8n workflow’ы** — два файла:
-  - `morning-digest-workflow.json` (cron 08:30 МСК) — retry на всех HTTP-нодах, fallback на сырые числа при провале Claude.
-  - `weekly-digest-workflow.json` (cron вс 19:00 МСК) — недельный итог с агрегатами и сравнением с прошлой неделей.
+- **GitHub репо** `AlenaS1997/life-dashboard` (public), 5 секретов в Actions.
+- **GitHub Actions cron** `garmin-sync.yml` — каждый день 08:05 МСК, `actions/cache` на garth-токены.
+- **GitHub Pages** через `pages.yml`. URL: `https://alenas1997.github.io/life-dashboard/`.
+- **Дашборд `dashboard/index.html`** (iPhone-first, тёмная тема):
+  - блок погоды (Open-Meteo, без ключа);
+  - **цветовая индикация good/warn/bad** на карточках сегодня (рамка + точка);
+  - **сравнение с прошлой неделей** в трендах (бейдж ▲/▼ % с цветом по знаку);
+  - **heatmap сна за 30 дней** — мозаика 7 колонок;
+  - **pull-to-refresh** на iPhone;
+  - skeleton-лоадер, detect закрытой Sheets, localStorage-кэш.
+- **Service Worker `dashboard/sw.js` (v3)** — offline-кэш статики и API.
+- **n8n workflow’ы** (3 файла):
+  - `gcal-sync-workflow.json` (cron 08:00 МСК) — Calendar → Sheets, идемпотентно (Clear+Append), `singleEvents: true`. Замена для Make.com. Импортирован, ждёт OAuth credential.
+  - `morning-digest-workflow.json` (cron 08:30 МСК) — Garmin + события + **погода** + Claude (промпт v2: тёплый, без коучинговых слов) + ссылка на дашборд. retry на всех HTTP, fallback с сырыми числами + ссылкой на дашборд. Ждёт credentials.
+  - `weekly-digest-workflow.json` (cron вс 19:00 МСК) — недельный итог.
+
+**История правок Make.com (была причиной отсутствия событий на дашборде):**
+- Schedule: every 15 min → **every day 08:00** (96 ops/day → 1 ops/day, лимит 1000 ops/мес остаётся в запасе).
+- Search Events: `addDays(now;-1)` для обоих полей → `addDays(now;0)` ... `addDays(now;1)` (искало вчера → ищет сегодня).
+- `Single Events: No → Yes` (повторяющиеся события теперь разворачиваются в индивидуальные).
+- `Limit: 10 → 50`.
 
 **Следующий шаг для Алёны (`MORNING.md`):**
-1. `git pull && git push` с Mac — мои ночные коммиты (`8abad9d`, `f943a08`) улетают на GitHub, Pages передеплоит автоматически.
-2. Открыть дашборд https://alenas1997.github.io/life-dashboard/ — проверить погоду, баннер «Sheets закрыт» (если ещё не открыт).
-3. Если Sheets закрыт — Share → Anyone with the link: Viewer.
-4. Safari → Поделиться → На экран «Домой» — иконка на iPhone.
-5. В Дни 5–6 — импорт `n8n/morning-digest-workflow.json` + `weekly-digest-workflow.json`, подключить Telegram Bot + Anthropic API key (по `n8n/README.md`).
+1. `git push` с Mac — все ночные коммиты улетят, Pages передеплоится автоматически.
+2. Запустить `python3.11 scripts/clear_gcal_events.py` — почистить старые строки 14 апреля.
+3. Активация Telegram-бота: BotFather → токен, @userinfobot → chat_id, Anthropic API key, импорт `morning-digest-workflow.json`, подставить credentials, тест → Active.
+4. (Опц.) Завершить переезд `gcal-sync` на n8n: Google OAuth credential, тест, отключить Make.com.
 
-**Осталось по плану на неделю:**
-- ~~Дни 2–3: деплой дашборда + iPhone~~ — сделано (iPhone-добавление осталось одним кликом для Алёны).
-- ~~День 4: полировка (погода, offline)~~ — сделано ночью с 27 на 28.
-- Дни 5–6: активация Telegram-бота + Claude (файлы готовы, нужны только credentials).
-- День 7: FatSecret или дополнительная полировка.
+**Осталось по плану:**
+- День 4 (28.04): активация Telegram-бота — 30–45 минут.
+- День 5 (29.04): добивка Telegram + (опц.) n8n переезд — 20–30 минут.
+- День 6 (30.04): полировка под живые данные за неделю.
+- День 7 (1.05): FatSecret или закрытие проекта.
 
 ## Правила работы
 

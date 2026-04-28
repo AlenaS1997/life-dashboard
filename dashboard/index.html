@@ -201,6 +201,97 @@
     .metric.stress .accent { background: var(--stress); }
     .metric.battery .accent { background: var(--battery); }
 
+    /* Цветовая индикация good/medium/bad — рамка-световой контур карточки */
+    .metric.status-good { box-shadow: inset 0 0 0 1px rgba(102, 187, 106, 0.35); }
+    .metric.status-warn { box-shadow: inset 0 0 0 1px rgba(255, 202, 40, 0.35); }
+    .metric.status-bad  { box-shadow: inset 0 0 0 1px rgba(255, 112, 67, 0.40); }
+    .metric.status-good .accent { box-shadow: 0 0 8px 1px rgba(102, 187, 106, 0.55); }
+    .metric.status-warn .accent { box-shadow: 0 0 8px 1px rgba(255, 202, 40, 0.55); }
+    .metric.status-bad  .accent { box-shadow: 0 0 8px 1px rgba(255, 112, 67, 0.65); }
+
+    /* Сравнение с прошлой неделей — стрелочка + дельта */
+    .delta {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      vertical-align: middle;
+    }
+    .delta.up-good   { background: rgba(102, 187, 106, 0.18); color: #8fdc92; }
+    .delta.up-bad    { background: rgba(255, 112, 67, 0.18);  color: #ffa78c; }
+    .delta.down-good { background: rgba(102, 187, 106, 0.18); color: #8fdc92; }
+    .delta.down-bad  { background: rgba(255, 112, 67, 0.18);  color: #ffa78c; }
+    .delta.flat      { background: rgba(120, 120, 120, 0.18); color: var(--text-dim); }
+    .delta-arrow {
+      font-size: 9px;
+      line-height: 1;
+    }
+
+    /* Heatmap сна (30 дней) */
+    .heatmap {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .heat-cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 4px;
+      background: rgba(156, 136, 255, 0.10);
+      position: relative;
+    }
+    .heat-cell.empty { background: rgba(255, 255, 255, 0.04); }
+    .heat-legend {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      font-size: 10px;
+      color: var(--text-muted);
+      justify-content: flex-end;
+    }
+    .heat-legend-cells {
+      display: inline-flex;
+      gap: 3px;
+    }
+    .heat-legend-cells .heat-cell {
+      width: 10px;
+      height: 10px;
+      aspect-ratio: auto;
+    }
+
+    /* Pull-to-refresh индикатор */
+    .ptr-indicator {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translate(-50%, -100%);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: var(--text-dim);
+      transition: transform 0.2s ease;
+      z-index: 100;
+      pointer-events: none;
+    }
+    .ptr-indicator.visible {
+      transform: translate(-50%, 12px);
+    }
+    .ptr-indicator.spinning::before {
+      content: "↻ ";
+      display: inline-block;
+      animation: ptr-spin 0.9s linear infinite;
+    }
+    @keyframes ptr-spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+
     /* Trends */
     .trends-grid {
       display: grid;
@@ -357,6 +448,7 @@
   </style>
 </head>
 <body>
+  <div id="ptr-indicator" class="ptr-indicator">Потяни — обновится</div>
   <main>
     <header>
       <h1 id="greeting">Доброе утро</h1>
@@ -432,6 +524,22 @@
           </div>
           <div class="skeleton-bar" style="height:32px"></div>
         </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Сон · 30 дней</h2>
+      <div class="heatmap" id="heatmap"></div>
+      <div class="heat-legend">
+        мало
+        <span class="heat-legend-cells">
+          <span class="heat-cell" style="background: rgba(156,136,255,0.10)"></span>
+          <span class="heat-cell" style="background: rgba(156,136,255,0.30)"></span>
+          <span class="heat-cell" style="background: rgba(156,136,255,0.55)"></span>
+          <span class="heat-cell" style="background: rgba(156,136,255,0.80)"></span>
+          <span class="heat-cell" style="background: rgba(156,136,255,1.00)"></span>
+        </span>
+        много
       </div>
     </section>
 
@@ -710,14 +818,42 @@
     document.getElementById("today-date").textContent = dateStr;
   }
 
-  function metricCard({ label, value, unit, sub, accent, wide }) {
+  function metricCard({ label, value, unit, sub, accent, wide, status }) {
+    const statusClass = status ? ` status-${status}` : "";
+    const wideClass = wide ? " wide" : "";
     return `
-      <div class="metric ${accent}${wide ? " wide" : ""}">
+      <div class="metric ${accent}${wideClass}${statusClass}">
         <span class="accent"></span>
         <span class="metric-label">${label}</span>
         <span class="metric-value">${value}${unit ? `<span class="unit">${unit}</span>` : ""}</span>
         ${sub ? `<span class="metric-sub">${sub}</span>` : ""}
       </div>`;
+  }
+
+  // Пороги good/warn/bad. Если "lowerIsBetter" — инвертируем (стресс).
+  // Возвращает 'good' | 'warn' | 'bad' | null.
+  function metricStatus(key, value) {
+    const v = num(value);
+    if (!isFinite(v)) return null;
+    const T = {
+      sleep_hours:      { good: 7.0, warn: 6.0, lowerIsBetter: false },
+      sleep_score:      { good: 80,  warn: 60,  lowerIsBetter: false },
+      hrv_last_night:   { good: 40,  warn: 30,  lowerIsBetter: false },
+      steps:            { good: 8000, warn: 5000, lowerIsBetter: false },
+      stress_avg:       { good: 40,  warn: 60,  lowerIsBetter: true },
+      body_battery_min: { good: 40,  warn: 20,  lowerIsBetter: false },
+      body_battery_max: { good: 70,  warn: 50,  lowerIsBetter: false },
+    };
+    const t = T[key];
+    if (!t) return null;
+    if (t.lowerIsBetter) {
+      if (v <= t.good) return "good";
+      if (v <= t.warn) return "warn";
+      return "bad";
+    }
+    if (v >= t.good) return "good";
+    if (v >= t.warn) return "warn";
+    return "bad";
   }
 
   function renderToday(row) {
@@ -731,16 +867,24 @@
       metricCard({
         label: "Сон", value: row.sleep_hours, unit: "ч",
         sub: `Score · ${row.sleep_score}`, accent: "sleep", wide: true,
+        status: metricStatus("sleep_hours", row.sleep_hours),
       }),
-      metricCard({ label: "HRV", value: row.hrv_last_night, unit: "мс", accent: "hrv" }),
-      metricCard({ label: "Шаги", value: formatNumber(row.steps), accent: "steps" }),
       metricCard({
-        label: "Стресс", value: row.stress_avg, unit: "/100",
-        accent: "stress",
+        label: "HRV", value: row.hrv_last_night, unit: "мс", accent: "hrv",
+        status: metricStatus("hrv_last_night", row.hrv_last_night),
+      }),
+      metricCard({
+        label: "Шаги", value: formatNumber(row.steps), accent: "steps",
+        status: metricStatus("steps", row.steps),
+      }),
+      metricCard({
+        label: "Стресс", value: row.stress_avg, unit: "/100", accent: "stress",
+        status: metricStatus("stress_avg", row.stress_avg),
       }),
       metricCard({
         label: "Body Battery", value: `${row.body_battery_max}`,
         sub: `min · ${row.body_battery_min}`, accent: "battery",
+        status: metricStatus("body_battery_min", row.body_battery_min),
       }),
     ].join("");
   }
@@ -784,6 +928,29 @@
       </svg>`;
   }
 
+  // Дельта между средним за last7 и средним за prev7.
+  // Возвращает HTML-бейджик «↑ 8 %» с цветом по знаку и направлению (lowerIsBetter инвертирует).
+  function deltaBadge(last7, prev7, key, lowerIsBetter) {
+    const avgOf = (rows) => {
+      const xs = rows.map((r) => num(r[key])).filter((v) => isFinite(v));
+      if (!xs.length) return null;
+      return xs.reduce((a, b) => a + b, 0) / xs.length;
+    };
+    const a = avgOf(last7);
+    const b = avgOf(prev7);
+    if (a == null || b == null || b === 0) return "";
+    const pctRaw = ((a - b) / Math.abs(b)) * 100;
+    const pct = Math.round(pctRaw);
+    if (Math.abs(pct) < 3) {
+      return `<span class="delta flat" title="≈ прошлая неделя"><span class="delta-arrow">≈</span>${Math.abs(pct)}%</span>`;
+    }
+    const up = pct > 0;
+    const sentiment = up ? (lowerIsBetter ? "bad" : "good") : (lowerIsBetter ? "good" : "bad");
+    const cls = (up ? "up-" : "down-") + sentiment;
+    const arrow = up ? "▲" : "▼";
+    return `<span class="delta ${cls}" title="vs прошлая неделя"><span class="delta-arrow">${arrow}</span>${Math.abs(pct)}%</span>`;
+  }
+
   function renderTrends(rows) {
     const grid = document.getElementById("trends-grid");
     if (!rows.length) {
@@ -791,11 +958,12 @@
       return;
     }
     const last7 = rows.slice(-7);
+    const prev7 = rows.slice(-14, -7);
     const metrics = [
-      { key: "sleep_hours",    label: "Сон",    color: "var(--sleep)",  unit: "ч",  decimals: 1 },
-      { key: "hrv_last_night", label: "HRV",    color: "var(--hrv)",    unit: "мс", decimals: 0 },
-      { key: "steps",          label: "Шаги",   color: "var(--steps)",  unit: "",   decimals: 0 },
-      { key: "stress_avg",     label: "Стресс", color: "var(--stress)", unit: "",   decimals: 0 },
+      { key: "sleep_hours",    label: "Сон",    color: "var(--sleep)",  unit: "ч",  decimals: 1, lowerIsBetter: false },
+      { key: "hrv_last_night", label: "HRV",    color: "var(--hrv)",    unit: "мс", decimals: 0, lowerIsBetter: false },
+      { key: "steps",          label: "Шаги",   color: "var(--steps)",  unit: "",   decimals: 0, lowerIsBetter: false },
+      { key: "stress_avg",     label: "Стресс", color: "var(--stress)", unit: "",   decimals: 0, lowerIsBetter: true  },
     ];
     grid.innerHTML = metrics.map((m) => {
       const values = last7.map((r) => num(r[m.key])).filter((v) => isFinite(v));
@@ -806,14 +974,41 @@
         : (m.decimals
             ? avg.toFixed(m.decimals).replace(".", ",")
             : Math.round(avg).toLocaleString("ru-RU"));
+      const delta = hasData && prev7.length ? deltaBadge(last7, prev7, m.key, m.lowerIsBetter) : "";
       return `
         <div class="trend">
           <div class="trend-head">
-            <span class="trend-label">${m.label}</span>
+            <span class="trend-label">${m.label}${delta}</span>
             <span class="trend-avg">${avgStr}<span class="unit">${m.unit ? " " + m.unit : ""}</span></span>
           </div>
           ${sparkline(last7.map((r) => r[m.key]), m.color)}
         </div>`;
+    }).join("");
+  }
+
+  // Heatmap сна за 30 последних дней. Цвет — opacity от 0.10 до 1.00.
+  // Пустые ячейки (нет данных) — приглушённые.
+  function renderHeatmap(rows) {
+    const el = document.getElementById("heatmap");
+    if (!el) return;
+    const last30 = rows.slice(-30);
+    if (!last30.length) {
+      el.innerHTML = '<div class="empty" style="grid-column:span 7">Нет истории сна</div>';
+      return;
+    }
+    // Рисуем ровно 30 ячеек (если данных меньше — слева пустые).
+    const filled = new Array(30 - last30.length).fill(null).concat(last30);
+    el.innerHTML = filled.map((r) => {
+      if (!r) return '<div class="heat-cell empty" title="нет данных"></div>';
+      const h = num(r.sleep_hours);
+      if (!isFinite(h) || h <= 0) {
+        return `<div class="heat-cell empty" title="${escapeHtml(r.date || "")}: нет данных"></div>`;
+      }
+      // Маппим 4..9 ч → opacity 0.15..1.00. Меньше 4 — нижний край, больше 9 — верхний.
+      const norm = Math.max(0, Math.min(1, (h - 4) / 5));
+      const alpha = 0.15 + norm * 0.85;
+      const tip = `${escapeHtml(r.date || "")}: ${h.toFixed(1).replace(".", ",")} ч`;
+      return `<div class="heat-cell" style="background: rgba(156,136,255,${alpha.toFixed(2)})" title="${tip}"></div>`;
     }).join("");
   }
 
@@ -938,6 +1133,7 @@
 
     renderToday(latest);
     renderTrends(garminRows);
+    renderHeatmap(garminRows);
 
     const events = usingMock ? generateMockEvents() : parseEvents(eventRows);
     renderEvents(events);
@@ -965,6 +1161,67 @@
     console.error(e);
     showBanner("Ошибка загрузки: " + escapeHtml(e.message), "warn");
   });
+
+  // ============================================================
+  // PULL-TO-REFRESH (iPhone-жест: потянуть страницу вниз сверху)
+  // ============================================================
+  (function setupPullToRefresh() {
+    const ind = document.getElementById("ptr-indicator");
+    if (!ind) return;
+    const THRESHOLD = 70;     // сколько надо потянуть, чтобы сработало
+    const PEEK_AT = 25;       // когда показывать подсказку
+    let startY = null;
+    let pulling = false;
+    let triggered = false;
+
+    document.addEventListener("touchstart", (e) => {
+      if (window.scrollY > 0) { startY = null; return; }
+      startY = e.touches[0].clientY;
+      pulling = false;
+      triggered = false;
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+      if (startY === null) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy > PEEK_AT && !triggered) {
+        pulling = true;
+        if (dy >= THRESHOLD) {
+          ind.classList.add("visible");
+          ind.textContent = "Отпусти — обновится";
+        } else {
+          ind.classList.add("visible");
+          ind.textContent = "Потяни ещё чуть-чуть…";
+        }
+      }
+    }, { passive: true });
+
+    document.addEventListener("touchend", () => {
+      if (startY === null) { return; }
+      if (!pulling) { startY = null; return; }
+      const wasVisible = ind.classList.contains("visible");
+      // Триггерим refresh, если была преодолена черта.
+      // Простая эвристика: если индикатор был с текстом «Отпусти».
+      if (wasVisible && ind.textContent === "Отпусти — обновится") {
+        triggered = true;
+        ind.classList.add("spinning");
+        ind.textContent = "Обновляю…";
+        load().catch((e) => {
+          console.error(e);
+          showBanner("Ошибка обновления: " + escapeHtml(e.message), "warn");
+        }).finally(() => {
+          setTimeout(() => {
+            ind.classList.remove("visible", "spinning");
+            ind.textContent = "Потяни — обновится";
+          }, 350);
+        });
+      } else {
+        ind.classList.remove("visible");
+      }
+      startY = null;
+      pulling = false;
+    }, { passive: true });
+  })();
 
   // ============================================================
   // SERVICE WORKER (offline-кэш для статики и API)

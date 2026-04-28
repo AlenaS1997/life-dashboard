@@ -23,9 +23,12 @@ LifeDashboard/
 ├── .gitignore
 ├── requirements.txt             # Python зависимости
 ├── scripts/
-│   └── garmin_sync.py           # Garmin → Google Sheets
+│   ├── garmin_sync.py           # Garmin → Google Sheets (cron 08:05 МСК)
+│   └── clear_gcal_events.py     # Одноразовая чистка вкладки gcal_events
+├── tests/
+│   └── test_garmin_sync.py      # Unit-тесты для парсеров (HRV, Body Battery, fetch)
 ├── dashboard/                   # iPhone-дашборд (HTML, деплоится на GitHub Pages)
-│   ├── index.html               # вся страница: HTML+CSS+JS, погода, тренды, события
+│   ├── index.html               # HTML+CSS+JS: погода, тренды + дельта vs прошлая неделя, heatmap сна, статусы good/warn/bad, pull-to-refresh
 │   ├── sw.js                    # Service Worker для offline-кэша
 │   ├── manifest.webmanifest
 │   ├── icon.svg
@@ -63,6 +66,13 @@ python3.11 scripts/garmin_sync.py
 
 # Конкретная дата
 python3.11 scripts/garmin_sync.py --date 2026-04-20
+
+# Запустить тесты для парсеров (без сети, через моки)
+python3.11 -m unittest tests.test_garmin_sync -v
+
+# Одноразовая чистка вкладки gcal_events (если в ней мусор от Make.com)
+python3.11 scripts/clear_gcal_events.py --dry-run   # сначала посмотреть
+python3.11 scripts/clear_gcal_events.py             # реально почистить
 ```
 
 ## Переменные окружения (`.env`)
