@@ -10,15 +10,19 @@
 
 | Источник | Метрики | Статус |
 |----------|---------|--------|
-| Garmin | Сон, HRV, шаги, стресс, Body Battery | Скрипт готов, живёт в Sheets, кэш сессии через garth |
-| Google Calendar | События дня | Переезжаем с Make.com (упёрся в лимит 1000 операций) на n8n. Workflow готов: `n8n/gcal-sync-workflow.json`. Нужен импорт + Google OAuth credential. |
-| FatSecret | Питание (калории, БЖУ) | Ожидаем доступ (пароль) |
+| Garmin | Сон, HRV, шаги, стресс, Body Battery | ✅ GitHub Actions cron 08:05 МСК. |
+| Google Calendar (Fluffy) | События дня | ✅ n8n workflow `gcal-sync` опубликован, cron 08:00 МСК. Тянет из календаря `Fluffyismylifemoscow@gmail.com` (расшарен с основным аккаунтом). Make.com отключён. |
+| FatSecret | Питание (калории, БЖУ) | 🟡 Каркас готов: `scripts/fatsecret_sync.py` + `scripts/fatsecret_auth.py`. Ждёт регистрацию dev account на platform.fatsecret.com + проверку доступности food diary endpoint (может потребоваться Premier $10–20/мес). |
 | Whoop | Восстановление | Не подключён (опционально) |
 
 ## Инфраструктура
 
-- **Make.com**: старый сценарий «Integration Google Calendar» (Calendar → Sheets every 15 min). Упёрся в лимит 1000 ops/мес, исчерпан 15 апреля. Также был баг: `singleEvents: false` — повторяющиеся события не разворачивались в экземпляры на день. Заменяется на n8n. После запуска n8n — отключить.
-- **n8n**: `https://n8n-production-e175.up.railway.app` — три workflow готовы (gcal-sync, morning-digest, weekly-digest). Без лимитов операций.
+- **Make.com**: старый сценарий «Integration Google Calendar» — отключается. Был причиной отсутствия событий на дашборде (упёрся в лимит 1000 ops + `singleEvents: false`).
+- **n8n**: `https://n8n-production-e175.up.railway.app` на Railway. Persistent volume `/home/node/.n8n` подключён (после серии граблей с потерей базы при рестарте). Env vars настроены: `N8N_HOST`, `N8N_PROTOCOL=https`, `WEBHOOK_URL`, `N8N_EDITOR_BASE_URL` — для корректного OAuth callback URL. Три workflow:
+  - `gcal-sync` — **активен**, cron 08:00 МСК.
+  - `morning-digest` — готов в репо, **ждёт активации** (нужны Telegram + Anthropic credentials).
+  - `weekly-digest` — готов в репо, ждёт тех же credentials.
+- **Railway**: trial кончается через ~10 дней ($5/мес Hobby после).
 - **GitHub Actions**: два workflow в `.github/workflows/`:
   - `garmin-sync.yml` — cron 08:05 МСК, актуальный.
   - `pages.yml` — деплой `dashboard/` на Pages при пуше (вручную через workflow_dispatch тоже).
@@ -33,48 +37,49 @@
 - Чтение данных — через публичный CSV-экспорт Google Sheets (без auth для read-only).
 - Деплой: GitHub Pages (публичный репо без чувствительных данных) или Cloudflare Pages (если приватный).
 
-## Текущее состояние (по состоянию на 2026-04-28, утро после второй ночной сессии)
+## Текущее состояние (по 2026-04-29, после третьей ночной сессии)
 
-**Сделано:**
-- Структура папки: `scripts/`, `tests/`, `dashboard/`, `n8n/`, `data/`, `reports/`, `.secrets/`, `.github/workflows/`.
-- `.env`, `.gitignore`, `.env.example`, `requirements.txt` — готовы.
-- `scripts/garmin_sync.py` — Garmin → Sheets с бэкофом 429, кэшем garth-токенов, идемпотентной записью.
-- `scripts/clear_gcal_events.py` — одноразовая чистка вкладки `gcal_events` от мусора Make.com.
-- `tests/test_garmin_sync.py` — 22 unit-теста на парсеры HRV / Body Battery / fetch_garmin_data (через моки). Все зелёные.
-- Service account создан, Sheets/Drive API включены, JSON в `.secrets/service-account.json`.
-- **GitHub репо** `AlenaS1997/life-dashboard` (public), 5 секретов в Actions.
-- **GitHub Actions cron** `garmin-sync.yml` — каждый день 08:05 МСК, `actions/cache` на garth-токены.
-- **GitHub Pages** через `pages.yml`. URL: `https://alenas1997.github.io/life-dashboard/`.
-- **Дашборд `dashboard/index.html`** (iPhone-first, тёмная тема):
-  - блок погоды (Open-Meteo, без ключа);
-  - **цветовая индикация good/warn/bad** на карточках сегодня (рамка + точка);
-  - **сравнение с прошлой неделей** в трендах (бейдж ▲/▼ % с цветом по знаку);
-  - **heatmap сна за 30 дней** — мозаика 7 колонок;
-  - **pull-to-refresh** на iPhone;
-  - skeleton-лоадер, detect закрытой Sheets, localStorage-кэш.
-- **Service Worker `dashboard/sw.js` (v3)** — offline-кэш статики и API.
-- **n8n workflow’ы** (3 файла):
-  - `gcal-sync-workflow.json` (cron 08:00 МСК) — Calendar → Sheets, идемпотентно (Clear+Append), `singleEvents: true`. Замена для Make.com. Импортирован, ждёт OAuth credential.
-  - `morning-digest-workflow.json` (cron 08:30 МСК) — Garmin + события + **погода** + Claude (промпт v2: тёплый, без коучинговых слов) + ссылка на дашборд. retry на всех HTTP, fallback с сырыми числами + ссылкой на дашборд. Ждёт credentials.
-  - `weekly-digest-workflow.json` (cron вс 19:00 МСК) — недельный итог.
+**Работает в продакшене:**
+- `garmin_sync.py` через GitHub Actions, cron 08:05 МСК (тесты — 22 шт).
+- n8n `gcal-sync` workflow, cron 08:00 МСК — события Fluffy → `gcal_events`.
+- Дашборд https://alenas1997.github.io/life-dashboard/ с фичами:
+  - Карточки «Сегодня» с цветовой индикацией good/warn/bad.
+  - Тренды vs прошлая неделя (▲/▼ % бейджи).
+  - Heatmap сна за 30 дней.
+  - **Композитный score дня** (sleep 35% + HRV 25% + stress 20% + BB 20%).
+  - **Серии (streaks)** — подряд дни ≥3 в норме/проблеме.
+  - Pull-to-refresh на iPhone.
+  - **Без блока погоды** (убран по запросу).
+  - Без блока «События дня» (дублировал нативный календарь).
+- Service Worker v5.
 
-**История правок Make.com (была причиной отсутствия событий на дашборде):**
-- Schedule: every 15 min → **every day 08:00** (96 ops/day → 1 ops/day, лимит 1000 ops/мес остаётся в запасе).
-- Search Events: `addDays(now;-1)` для обоих полей → `addDays(now;0)` ... `addDays(now;1)` (искало вчера → ищет сегодня).
-- `Single Events: No → Yes` (повторяющиеся события теперь разворачиваются в индивидуальные).
-- `Limit: 10 → 50`.
+**Готово, ждёт активации Алёной:**
+- `morning-digest-workflow.json` — Telegram-дайджест 08:30 МСК.
+  Промпт v3 (аналитик, тренды 7/14/30, streak'и, разбор причин,
+  одна рекомендация). Нужны: BotFather токен, chat_id, Anthropic API key.
+- `weekly-digest-workflow.json` — воскресный итог 19:00 МСК.
+- `scripts/fatsecret_sync.py` + `scripts/fatsecret_auth.py` — каркас FS
+  интеграции. Ждёт регистрацию на platform.fatsecret.com.
 
-**Следующий шаг для Алёны (`MORNING.md`):**
-1. `git push` с Mac — все ночные коммиты улетят, Pages передеплоится автоматически.
-2. Запустить `python3.11 scripts/clear_gcal_events.py` — почистить старые строки 14 апреля.
-3. Активация Telegram-бота: BotFather → токен, @userinfobot → chat_id, Anthropic API key, импорт `morning-digest-workflow.json`, подставить credentials, тест → Active.
-4. (Опц.) Завершить переезд `gcal-sync` на n8n: Google OAuth credential, тест, отключить Make.com.
+**Грабли которые мы прошли в эту сессию:**
+- Make.com упёрся в лимит 1000 ops/мес из-за `every 15 min` schedule + `singleEvents: false`. Починили оба, но потом всё равно переехали на n8n.
+- n8n на Railway без persistent volume → база слетала при каждом передеплое (3 раза прошли owner setup). Решено через volume mount `/home/node/.n8n`.
+- n8n env vars `N8N_HOST` / `N8N_PROTOCOL` / `WEBHOOK_URL` / `N8N_EDITOR_BASE_URL` нужны для корректного OAuth callback URL (по умолчанию был localhost:5678).
+- OAuth client в Google Cloud — отдельный wizard «Project configuration», нужен External + добавить email в Test users.
+- Календарь Fluffy — другой Google аккаунт, но расшарен на основной → можем тянуть его через credential основного аккаунта, просто меняем `calendar_id` на email Fluffy.
+- IF-нода в n8n не пропускала items от Маппим к Append — упростили pipeline (убрали IF и Clear, теперь Append получает 19 events напрямую). Дубли решим в следующую сессию через `appendOrUpdate`.
+- Нода Google Calendar в n8n при импорте JSON не маппит `singleEvents` — нужно явно ставить **All Occurrences** в Recurring Event Handling + Timezone = Europe/Moscow в Options.
+
+**Следующий шаг (`MORNING.md`):**
+1. `git push` — улетят правки дашборда (события убраны, score+streaks добавлены).
+2. Telegram-бот: BotFather → chat_id → Anthropic key → подвязать в morning-digest → Publish.
+3. (Опц.) FatSecret: регистрация dev account → проверить доступ к food diary → запустить fatsecret_auth.py → fatsecret_sync.py.
 
 **Осталось по плану:**
-- День 4 (28.04): активация Telegram-бота — 30–45 минут.
-- День 5 (29.04): добивка Telegram + (опц.) n8n переезд — 20–30 минут.
-- День 6 (30.04): полировка под живые данные за неделю.
-- День 7 (1.05): FatSecret или закрытие проекта.
+- ⏳ Активация Telegram-бота — 30–40 минут активной работы Алёны.
+- ⏳ FatSecret интеграция (когда будет dev account + Premier API проверка) — 1.5–3 часа.
+- ⏳ Доделка дублей в gcal-sync (appendOrUpdate вместо append).
+- ⏳ Финальный отчёт + закрытие проекта.
 
 ## Правила работы
 

@@ -24,7 +24,9 @@ LifeDashboard/
 ├── requirements.txt             # Python зависимости
 ├── scripts/
 │   ├── garmin_sync.py           # Garmin → Google Sheets (cron 08:05 МСК)
-│   └── clear_gcal_events.py     # Одноразовая чистка вкладки gcal_events
+│   ├── clear_gcal_events.py     # Одноразовая чистка вкладки gcal_events
+│   ├── fatsecret_auth.py        # OAuth 1.0a setup для FatSecret (одноразово)
+│   └── fatsecret_sync.py        # FatSecret → Sheets (заготовка, ждёт dev account)
 ├── tests/
 │   └── test_garmin_sync.py      # Unit-тесты для парсеров (HRV, Body Battery, fetch)
 ├── dashboard/                   # iPhone-дашборд (HTML, деплоится на GitHub Pages)

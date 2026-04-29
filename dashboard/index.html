@@ -215,6 +215,87 @@
       aspect-ratio: auto;
     }
 
+    /* Composite Score блок */
+    .score-block {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .score-main {
+      flex: 0 0 auto;
+      text-align: center;
+      padding: 8px 14px 8px 0;
+      border-right: 1px solid var(--border);
+    }
+    .score-value {
+      font-size: 42px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      color: var(--text);
+    }
+    .score-value .score-unit {
+      font-size: 14px;
+      color: var(--text-dim);
+      font-weight: 500;
+      margin-left: 2px;
+    }
+    .score-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 6px;
+      letter-spacing: 0.02em;
+    }
+    .score-breakdown {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-dim);
+      min-width: 0;
+    }
+    .score-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .score-row-label { color: var(--text-dim); }
+    .score-row-value { color: var(--text); font-weight: 600; }
+    .score-row-bad   { color: #ff7043; }
+    .score-row-warn  { color: #ffca28; }
+    .score-row-good  { color: #66bb6a; }
+
+    /* Streaks (серии) */
+    .streaks-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .streak {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-card-2);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+    .streak-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .streak-text {
+      color: var(--text);
+      flex: 1;
+    }
+    .streak-count {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--text);
+    }
+
     /* Pull-to-refresh индикатор */
     .ptr-indicator {
       position: fixed;
@@ -487,16 +568,20 @@
     </section>
 
     <section>
-      <h2>События дня</h2>
-      <ul class="events-list" id="events-list">
-        <li class="event">
-          <span class="event-time"><span class="skeleton-bar" style="display:inline-block;width:38px;height:10px;vertical-align:middle"></span></span>
-          <span class="event-title"><span class="skeleton-bar" style="display:inline-block;width:70%;height:10px;vertical-align:middle"></span></span>
-        </li>
-        <li class="event">
-          <span class="event-time"><span class="skeleton-bar" style="display:inline-block;width:38px;height:10px;vertical-align:middle"></span></span>
-          <span class="event-title"><span class="skeleton-bar" style="display:inline-block;width:55%;height:10px;vertical-align:middle"></span></span>
-        </li>
+      <h2>Композитный score</h2>
+      <div class="score-block" id="score-block">
+        <div class="score-main">
+          <div class="score-value"><span id="score-value">—</span><span class="score-unit">/100</span></div>
+          <div class="score-label" id="score-label">Считаем…</div>
+        </div>
+        <div class="score-breakdown" id="score-breakdown"></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Серии</h2>
+      <ul class="streaks-list" id="streaks-list">
+        <li class="streak"><span class="skeleton-bar" style="width:60%;height:12px"></span></li>
       </ul>
     </section>
 
@@ -897,6 +982,127 @@
       </li>`).join("");
   }
 
+  // ============================================================
+  // КОМПОЗИТНЫЙ SCORE — общая оценка дня 0..100
+  // ============================================================
+  // Вес: sleep_score 0.35, hrv 0.25, stress (инверт) 0.20, body_battery_min 0.20.
+  // HRV нормализован: 20..60 мс → 0..100. Стресс инвертирован: чем меньше — тем выше вклад.
+  function computeScore(row) {
+    if (!row) return null;
+    const ss  = num(row.sleep_score);
+    const hrv = num(row.hrv_last_night);
+    const st  = num(row.stress_avg);
+    const bb  = num(row.body_battery_min);
+
+    const ssNorm  = isFinite(ss)  ? Math.max(0, Math.min(100, ss)) : null;
+    const hrvNorm = isFinite(hrv) ? Math.max(0, Math.min(100, ((hrv - 20) / 40) * 100)) : null;
+    const stNorm  = isFinite(st)  ? Math.max(0, Math.min(100, 100 - st)) : null;
+    const bbNorm  = isFinite(bb)  ? Math.max(0, Math.min(100, bb)) : null;
+
+    const weights = [
+      { v: ssNorm,  w: 0.35, label: "Сон",    raw: ss,  unit: "" },
+      { v: hrvNorm, w: 0.25, label: "HRV",    raw: hrv, unit: "" },
+      { v: stNorm,  w: 0.20, label: "Стресс", raw: st,  unit: "", invert: true },
+      { v: bbNorm,  w: 0.20, label: "BB min", raw: bb,  unit: "" },
+    ];
+    const valid = weights.filter((m) => m.v != null);
+    if (!valid.length) return null;
+    const sumW = valid.reduce((a, m) => a + m.w, 0);
+    const score = Math.round(valid.reduce((a, m) => a + m.v * m.w, 0) / sumW);
+    return { score, parts: weights };
+  }
+
+  function scoreLabel(s) {
+    if (s == null) return "—";
+    if (s >= 80) return "Отличный день";
+    if (s >= 65) return "Хороший день";
+    if (s >= 50) return "Средний";
+    return "День отдыха";
+  }
+
+  function statusColor(part) {
+    // Класс цвета строки в breakdown — на базе индивидуального metricStatus
+    if (part.raw == null || !isFinite(part.raw)) return "";
+    const keyMap = {
+      "Сон": "sleep_score", "HRV": "hrv_last_night",
+      "Стресс": "stress_avg", "BB min": "body_battery_min",
+    };
+    const st = metricStatus(keyMap[part.label] || "", part.raw);
+    if (st === "good") return "score-row-good";
+    if (st === "warn") return "score-row-warn";
+    if (st === "bad")  return "score-row-bad";
+    return "";
+  }
+
+  function renderScore(row) {
+    const block = computeScore(row);
+    const valEl = document.getElementById("score-value");
+    const labEl = document.getElementById("score-label");
+    const bdEl  = document.getElementById("score-breakdown");
+    if (!block) {
+      valEl.textContent = "—";
+      labEl.textContent = "Нет данных";
+      bdEl.innerHTML = "";
+      return;
+    }
+    valEl.textContent = block.score;
+    labEl.textContent = scoreLabel(block.score);
+    bdEl.innerHTML = block.parts.map((p) => {
+      const valStr = (p.raw == null || !isFinite(p.raw)) ? "—" : Math.round(p.raw);
+      return `
+        <div class="score-row">
+          <span class="score-row-label">${p.label}</span>
+          <span class="score-row-value ${statusColor(p)}">${valStr}</span>
+        </div>`;
+    }).join("");
+  }
+
+  // ============================================================
+  // STREAKS — серии подряд дней «как» по метрике
+  // Возвращает список streak'ов которые ≥3 дней (короче не интересно).
+  // ============================================================
+  function computeStreaks(rows) {
+    if (!rows.length) return [];
+    const checks = [
+      { key: "sleep_hours", label: "сон ≥7 ч",     ok: (v) => v >= 7,    icon: "🟢" },
+      { key: "sleep_hours", label: "сон <6 ч",     ok: (v) => v < 6,     icon: "🔴" },
+      { key: "hrv_last_night", label: "HRV ≥40", ok: (v) => v >= 40,   icon: "🟢" },
+      { key: "hrv_last_night", label: "HRV <30", ok: (v) => v < 30,    icon: "🔴" },
+      { key: "stress_avg", label: "стресс ≤40",   ok: (v) => v <= 40,   icon: "🟢" },
+      { key: "stress_avg", label: "стресс ≥60",   ok: (v) => v >= 60,   icon: "🔴" },
+      { key: "steps", label: "≥8000 шагов",       ok: (v) => v >= 8000, icon: "🟢" },
+    ];
+    const result = [];
+    for (const c of checks) {
+      let count = 0;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const v = num(rows[i][c.key]);
+        if (!isFinite(v)) break;
+        if (c.ok(v)) count++; else break;
+      }
+      if (count >= 3) result.push({ ...c, count });
+    }
+    // Сортируем: сначала длинные streak'и
+    result.sort((a, b) => b.count - a.count);
+    return result.slice(0, 4); // максимум 4, чтобы не разрастался блок
+  }
+
+  function renderStreaks(rows) {
+    const list = document.getElementById("streaks-list");
+    if (!list) return;
+    const streaks = computeStreaks(rows);
+    if (!streaks.length) {
+      list.innerHTML = '<li class="streak"><span class="streak-text" style="color:var(--text-muted)">Серий ≥3 дней пока нет — копим</span></li>';
+      return;
+    }
+    list.innerHTML = streaks.map((s) => `
+      <li class="streak">
+        <span class="streak-icon">${s.icon}</span>
+        <span class="streak-text">${escapeHtml(s.label)}</span>
+        <span class="streak-count">${s.count} дн.</span>
+      </li>`).join("");
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -998,9 +1204,8 @@
     renderToday(latest);
     renderTrends(garminRows);
     renderHeatmap(garminRows);
-
-    const events = usingMock ? generateMockEvents() : parseEvents(eventRows);
-    renderEvents(events);
+    renderScore(latest);
+    renderStreaks(garminRows);
 
     // Сохраняем в кэш только реальные данные (не mock!)
     if (!usingMock && !usingCache) {

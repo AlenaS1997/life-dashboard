@@ -3,3 +3,6 @@ garth
 gspread>=6.0.0
 google-auth>=2.25.0
 python-dotenv>=1.0.0
+# FatSecret OAuth 1.0a — для scripts/fatsecret_*.py (можно поставить
+# отдельно, если FS пока не используешь):
+requests-oauthlib>=2.0.0
