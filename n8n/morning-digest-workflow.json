@@ -42,27 +42,9 @@
               "type": "string"
             },
             {
-              "id": "calendar-id",
-              "name": "calendar_id",
-              "value": "savchenko.alena.27071997@gmail.com",
-              "type": "string"
-            },
-            {
               "id": "chat-id",
               "name": "telegram_chat_id",
               "value": "REPLACE_ME_WITH_YOUR_CHAT_ID",
-              "type": "string"
-            },
-            {
-              "id": "weather-lat",
-              "name": "weather_lat",
-              "value": "55.7558",
-              "type": "string"
-            },
-            {
-              "id": "weather-lon",
-              "name": "weather_lon",
-              "value": "37.6173",
               "type": "string"
             },
             {
@@ -80,7 +62,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [460, 300],
-      "notes": "Поправь telegram_chat_id (узнать можно у @userinfobot в Telegram). Координаты — Москва, поменяй если уехала."
+      "notes": "Поправь telegram_chat_id (узнать можно у @userinfobot в Telegram)."
     },
     {
       "parameters": {
@@ -97,59 +79,37 @@
       "name": "Тянем Garmin CSV (история)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 140],
+      "position": [680, 200],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "notes": "Тянем всю историю Garmin (для расчёта 7/14/30-дневных средних, дельт, streak'ов)."
+      "notes": "История Garmin для расчёта 7/14/30-дневных средних, дельт, streak'ов."
     },
     {
       "parameters": {
-        "resource": "event",
-        "operation": "getAll",
-        "calendar": {
-          "__rl": true,
-          "value": "={{ $('Конфиг').item.json.calendar_id }}",
-          "mode": "id"
-        },
-        "returnAll": true,
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $('Конфиг').item.json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $('Конфиг').item.json.events_tab }}",
         "options": {
-          "singleEvents": true,
-          "timeMin": "={{ $now.minus({days:7}).startOf('day').toISO() }}",
-          "timeMax": "={{ $now.plus({days:1}).endOf('day').toISO() }}",
-          "orderBy": "startTime"
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
         }
       },
-      "id": "fetch-calendar",
-      "name": "Календарь за 7 дней + сегодня",
-      "type": "n8n-nodes-base.googleCalendar",
-      "typeVersion": 1.3,
-      "position": [680, 300],
+      "id": "fetch-events",
+      "name": "Тянем события из Sheets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 400],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
       "continueOnFail": true,
-      "notes": "Тянем события с -7 дней по +1 день (для анализа причин: «4 встречи вечером → плохой сон»). Использует тот же Google credential, что и gcal-sync workflow."
+      "notes": "Тянем gcal_events из Sheets — туда gcal-sync workflow ежедневно пишет события Fluffy-календаря. Никаких Calendar OAuth здесь — только публичный CSV-экспорт. Накопительная история событий за все дни начиная с активации gcal-sync."
     },
     {
       "parameters": {
-        "url": "=https://api.open-meteo.com/v1/forecast?latitude={{ $('Конфиг').item.json.weather_lat }}&longitude={{ $('Конфиг').item.json.weather_lon }}&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=Europe%2FMoscow",
-        "options": {}
-      },
-      "id": "fetch-weather",
-      "name": "Тянем погоду",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [680, 460],
-      "retryOnFail": true,
-      "maxTries": 2,
-      "waitBetweenTries": 3000,
-      "continueOnFail": true,
-      "notes": "Open-Meteo — без API-ключа. Если упадёт после 2 попыток, дайджест уйдёт без блока погоды."
-    },
-    {
-      "parameters": {
-        "jsCode": "// =====================================================================\n// Аналитика для утреннего дайджеста.\n// Считаем тренды (7/14/30), streak'и, ловим связи метрик с календарём,\n// формируем структурированный payload для Claude.\n// =====================================================================\n\nconst garminCsv = $('Тянем Garmin CSV (история)').item.json.data || $('Тянем Garmin CSV (история)').item.json;\nconst weatherJson = $('Тянем погоду').item ? $('Тянем погоду').item.json : null;\n\n// Календарь приходит как массив items напрямую от Google Calendar node.\nlet calendarEvents = [];\ntry {\n  const calItems = $('Календарь за 7 дней + сегодня').all();\n  calendarEvents = calItems.map(i => i.json).filter(Boolean);\n} catch (e) {\n  calendarEvents = [];\n}\n\n// ---------- CSV parser ----------\nfunction parseCsv(raw) {\n  if (typeof raw !== 'string') raw = String(raw);\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\nconst rows = parseCsv(garminCsv).sort((a,b)=>(a.date||'').localeCompare(b.date||''));\n\n// ---------- helpers ----------\nconst num = (v) => {\n  if (v == null || v === '') return NaN;\n  if (typeof v === 'number') return v;\n  const cleaned = String(v).replace(/[\\s\\u00A0]/g,'').replace(',','.');\n  const n = parseFloat(cleaned);\n  return isFinite(n) ? n : NaN;\n};\nconst avg = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  if (!ys.length) return null;\n  return ys.reduce((a,b)=>a+b,0)/ys.length;\n};\nconst round = (v, d=1) => v == null ? null : Number(v.toFixed(d));\n\n// ---------- Текущая дата и история ----------\nconst latest = rows[rows.length - 1] || {};\nconst last7 = rows.slice(-7);\nconst prev7 = rows.slice(-14, -7);\nconst last14 = rows.slice(-14);\nconst last30 = rows.slice(-30);\n\nconst metricKeys = ['sleep_hours','sleep_score','hrv_last_night','steps','stress_avg','body_battery_min'];\nconst lowerIsBetter = { stress_avg: true };\n\n// ---------- Тренды (7d/14d/30d средние + дельты) ----------\nconst trends = {};\nfor (const k of metricKeys) {\n  const a7 = avg(last7.map(r=>r[k]));\n  const a14 = avg(last14.map(r=>r[k]));\n  const a30 = avg(last30.map(r=>r[k]));\n  const aPrev7 = avg(prev7.map(r=>r[k]));\n  const decimals = (k === 'sleep_hours') ? 1 : 0;\n  trends[k] = {\n    avg_7d: round(a7, decimals),\n    avg_14d: round(a14, decimals),\n    avg_30d: round(a30, decimals),\n    delta_vs_prev_week_pct: (a7 != null && aPrev7 != null && aPrev7 !== 0)\n      ? Math.round((a7 - aPrev7) / Math.abs(aPrev7) * 100) : null,\n    delta_7d_vs_30d_pct: (a7 != null && a30 != null && a30 !== 0)\n      ? Math.round((a7 - a30) / Math.abs(a30) * 100) : null,\n  };\n}\n\n// ---------- Streak'и (сколько подряд дней метрика хуже базы 30d) ----------\nfunction streakWorseThanBaseline(rows, key, baseline, lowerIsBetterFlag) {\n  if (baseline == null) return 0;\n  let count = 0;\n  for (let i = rows.length - 1; i >= 0; i--) {\n    const v = num(rows[i][key]);\n    if (!isFinite(v)) break;\n    const worse = lowerIsBetterFlag ? (v > baseline) : (v < baseline);\n    if (worse) count++; else break;\n  }\n  return count;\n}\nconst streaks = {};\nfor (const k of metricKeys) {\n  streaks[k] = streakWorseThanBaseline(rows, k, trends[k].avg_30d, !!lowerIsBetter[k]);\n}\n\n// ---------- Календарь: маппим события по дням, считаем «вечерние нагрузки» ----------\nfunction toLocalDateStr(iso) {\n  if (!iso) return '';\n  // 2026-04-27T18:30:00+03:00 → '2026-04-27' в МСК\n  const m = String(iso).match(/^(\\d{4}-\\d{2}-\\d{2})/);\n  return m ? m[1] : '';\n}\nfunction localHour(iso) {\n  // Извлекаем час из ISO с учётом смещения (формат +03:00 у gcal обычно)\n  const m = String(iso).match(/T(\\d{2}):(\\d{2})/);\n  return m ? parseInt(m[1], 10) : null;\n}\n\nconst eventsByDay = {};   // 'YYYY-MM-DD' → [ {title, start, end, hour} ]\nfor (const ev of calendarEvents) {\n  const startIso = (ev.start && (ev.start.dateTime || ev.start.date)) || '';\n  const endIso = (ev.end && (ev.end.dateTime || ev.end.date)) || '';\n  const day = toLocalDateStr(startIso);\n  if (!day) continue;\n  const hour = localHour(startIso);\n  (eventsByDay[day] ||= []).push({\n    title: ev.summary || '',\n    time: (() => {\n      const m = String(startIso).match(/T(\\d{2}):(\\d{2})/);\n      return m ? `${m[1]}:${m[2]}` : '—';\n    })(),\n    hour,\n    is_evening: hour != null && hour >= 18,\n    is_late: hour != null && hour >= 21,\n  });\n}\n\n// Контекст для каждого из последних 7 дней: дата → метрики + count событий вечером\nconst dailyContext = last7.map(r => {\n  const d = r.date;\n  const evs = eventsByDay[d] || [];\n  return {\n    date: d,\n    sleep_hours: num(r.sleep_hours) || null,\n    sleep_score: num(r.sleep_score) || null,\n    hrv: num(r.hrv_last_night) || null,\n    stress: num(r.stress_avg) || null,\n    steps: num(r.steps) || null,\n    body_battery_min: num(r.body_battery_min) || null,\n    events_total: evs.length,\n    events_evening: evs.filter(e => e.is_evening).length,\n    events_late: evs.filter(e => e.is_late).length,\n  };\n});\n\n// ---------- События на сегодня (для блока «Сегодня») ----------\nconst today = new Date().toISOString().slice(0, 10);\nconst todayEvents = (eventsByDay[today] || [])\n  .sort((a,b) => a.time.localeCompare(b.time))\n  .slice(0, 6)\n  .map(e => ({ title: e.title, time: e.time }));\n\n// ---------- Погода ----------\nfunction wmo(code) {\n  if (code === 0) return { emoji:'☀️', text:'ясно' };\n  if (code <= 2) return { emoji:'⛅', text:'переменная облачность' };\n  if (code === 3) return { emoji:'☁️', text:'пасмурно' };\n  if (code === 45 || code === 48) return { emoji:'🌫️', text:'туман' };\n  if (code >= 51 && code <= 57) return { emoji:'🌦️', text:'морось' };\n  if (code >= 61 && code <= 67) return { emoji:'🌧️', text:'дождь' };\n  if (code >= 71 && code <= 77) return { emoji:'❄️', text:'снег' };\n  if (code >= 80 && code <= 82) return { emoji:'🌦️', text:'ливни' };\n  if (code >= 95) return { emoji:'⛈️', text:'гроза' };\n  return { emoji:'🌤️', text:'погода' };\n}\nlet weather = null;\nif (weatherJson && weatherJson.current) {\n  const c = weatherJson.current;\n  const w = wmo(c.weather_code);\n  weather = {\n    emoji: w.emoji,\n    description: w.text,\n    temp_c: Math.round(c.temperature_2m),\n    apparent_c: Math.round(c.apparent_temperature),\n    wind_kmh: Math.round(c.wind_speed_10m),\n    precipitation_mm: c.precipitation || 0,\n  };\n}\n\n// ---------- Финальный payload ----------\nconst payload = {\n  today,\n  yesterday: {\n    date: latest.date || null,\n    sleep_hours: round(num(latest.sleep_hours), 1),\n    sleep_score: num(latest.sleep_score) || null,\n    hrv: num(latest.hrv_last_night) || null,\n    steps: num(latest.steps) || null,\n    stress: num(latest.stress_avg) || null,\n    body_battery_max: num(latest.body_battery_max) || null,\n    body_battery_min: num(latest.body_battery_min) || null,\n    events_total: (eventsByDay[latest.date] || []).length,\n    events_evening: (eventsByDay[latest.date] || []).filter(e => e.is_evening).length,\n    events_late: (eventsByDay[latest.date] || []).filter(e => e.is_late).length,\n  },\n  trends,        // { sleep_hours: {avg_7d, avg_14d, avg_30d, delta_vs_prev_week_pct, delta_7d_vs_30d_pct}, ... }\n  streaks,       // { sleep_hours: 3, ... } — кол-во подряд дней хуже 30-дневной базы\n  daily_last_7: dailyContext,  // массив за 7 последних дней с метриками + счётчиками событий\n  events_today: todayEvents,\n  weather,\n  dashboard_url: $('Конфиг').item.json.dashboard_url,\n};\n\nreturn [{ json: payload }];"
+        "jsCode": "// =====================================================================\n// Аналитика для утреннего дайджеста.\n// События читаем из вкладки gcal_events (туда пишет gcal-sync workflow).\n// Calendar API не дёргаем — Sheets надёжнее и совпадает с дашбордом.\n// =====================================================================\n\nconst garminCsv = $('Тянем Garmin CSV (история)').item.json.data || $('Тянем Garmin CSV (история)').item.json;\n\nlet eventsCsv = '';\ntry {\n  eventsCsv = $('Тянем события из Sheets').item.json.data || $('Тянем события из Sheets').item.json || '';\n} catch (e) {\n  eventsCsv = '';\n}\n\n// ---------- CSV parser ----------\nfunction parseCsv(raw) {\n  if (typeof raw !== 'string') raw = String(raw);\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\nconst rows = parseCsv(garminCsv).sort((a,b)=>(a.date||'').localeCompare(b.date||''));\nconst eventRows = parseCsv(eventsCsv);\n\n// ---------- helpers ----------\nconst num = (v) => {\n  if (v == null || v === '') return NaN;\n  if (typeof v === 'number') return v;\n  const cleaned = String(v).replace(/[\\s\\u00A0]/g,'').replace(',','.');\n  const n = parseFloat(cleaned);\n  return isFinite(n) ? n : NaN;\n};\nconst avg = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  if (!ys.length) return null;\n  return ys.reduce((a,b)=>a+b,0)/ys.length;\n};\nconst round = (v, d=1) => v == null ? null : Number(v.toFixed(d));\n\n// ---------- Текущая дата (МСК!) и история ----------\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });\nconst latest = rows[rows.length - 1] || {};\nconst last7 = rows.slice(-7);\nconst prev7 = rows.slice(-14, -7);\nconst last14 = rows.slice(-14);\nconst last30 = rows.slice(-30);\n\nconst metricKeys = ['sleep_hours','sleep_score','hrv_last_night','steps','stress_avg','body_battery_min'];\nconst lowerIsBetter = { stress_avg: true };\n\n// ---------- Тренды ----------\nconst trends = {};\nfor (const k of metricKeys) {\n  const a7 = avg(last7.map(r=>r[k]));\n  const a14 = avg(last14.map(r=>r[k]));\n  const a30 = avg(last30.map(r=>r[k]));\n  const aPrev7 = avg(prev7.map(r=>r[k]));\n  const decimals = (k === 'sleep_hours') ? 1 : 0;\n  trends[k] = {\n    avg_7d: round(a7, decimals),\n    avg_14d: round(a14, decimals),\n    avg_30d: round(a30, decimals),\n    delta_vs_prev_week_pct: (a7 != null && aPrev7 != null && aPrev7 !== 0)\n      ? Math.round((a7 - aPrev7) / Math.abs(aPrev7) * 100) : null,\n    delta_7d_vs_30d_pct: (a7 != null && a30 != null && a30 !== 0)\n      ? Math.round((a7 - a30) / Math.abs(a30) * 100) : null,\n  };\n}\n\n// ---------- Streak'и ----------\nfunction streakWorseThanBaseline(rows, key, baseline, lowerIsBetterFlag) {\n  if (baseline == null) return 0;\n  let count = 0;\n  for (let i = rows.length - 1; i >= 0; i--) {\n    const v = num(rows[i][key]);\n    if (!isFinite(v)) break;\n    const worse = lowerIsBetterFlag ? (v > baseline) : (v < baseline);\n    if (worse) count++; else break;\n  }\n  return count;\n}\nconst streaks = {};\nfor (const k of metricKeys) {\n  streaks[k] = streakWorseThanBaseline(rows, k, trends[k].avg_30d, !!lowerIsBetter[k]);\n}\n\n// ---------- События по дням ----------\n// Колонки в gcal_events: date, event_title, start_time, end_time, calendar\n// start_time — ISO datetime в МСК (например 2026-04-30T14:00:00). Берём первые 10 символов как день.\nconst eventsByDay = {};\nfor (const e of eventRows) {\n  const startIso = e.start_time || e.date || '';\n  const day = (startIso.match(/^(\\d{4}-\\d{2}-\\d{2})/) || [])[1] || '';\n  if (!day) continue;\n  const timeMatch = startIso.match(/T(\\d{2}):(\\d{2})/);\n  const hour = timeMatch ? parseInt(timeMatch[1], 10) : null;\n  (eventsByDay[day] ||= []).push({\n    title: e.event_title || '',\n    time: timeMatch ? `${timeMatch[1]}:${timeMatch[2]}` : '—',\n    hour,\n    is_evening: hour != null && hour >= 18,\n    is_late: hour != null && hour >= 21,\n  });\n}\n\n// ---------- daily_last_7: контекст за 7 дней с метриками + событиями ----------\nconst dailyContext = last7.map(r => {\n  const d = r.date;\n  const evs = eventsByDay[d] || [];\n  return {\n    date: d,\n    sleep_hours: round(num(r.sleep_hours), 1),\n    sleep_score: num(r.sleep_score) || null,\n    hrv: num(r.hrv_last_night) || null,\n    stress: num(r.stress_avg) || null,\n    steps: num(r.steps) || null,\n    body_battery_min: num(r.body_battery_min) || null,\n    events_total: evs.length,\n    events_evening: evs.filter(e => e.is_evening).length,\n    events_late: evs.filter(e => e.is_late).length,\n  };\n});\n\n// ---------- События на сегодня ----------\nconst todayEvents = (eventsByDay[today] || [])\n  .sort((a,b) => a.time.localeCompare(b.time))\n  .slice(0, 6)\n  .map(e => ({ title: e.title, time: e.time }));\n\n// ---------- Финальный payload ----------\nconst payload = {\n  today,\n  yesterday: {\n    date: latest.date || null,\n    sleep_hours: round(num(latest.sleep_hours), 1),\n    sleep_score: num(latest.sleep_score) || null,\n    hrv: num(latest.hrv_last_night) || null,\n    steps: num(latest.steps) || null,\n    stress: num(latest.stress_avg) || null,\n    body_battery_max: num(latest.body_battery_max) || null,\n    body_battery_min: num(latest.body_battery_min) || null,\n    events_total: (eventsByDay[latest.date] || []).length,\n    events_evening: (eventsByDay[latest.date] || []).filter(e => e.is_evening).length,\n    events_late: (eventsByDay[latest.date] || []).filter(e => e.is_late).length,\n  },\n  trends,\n  streaks,\n  daily_last_7: dailyContext,\n  events_today: todayEvents,\n  events_in_sheet_total: eventRows.length,\n  weather: null,\n  dashboard_url: $('Конфиг').item.json.dashboard_url,\n};\n\nreturn [{ json: payload }];"
       },
       "id": "build-context",
       "name": "Считаем тренды и связи",
@@ -178,7 +138,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1500,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery + календарь встреч). Каждое утро в Telegram присылаешь короткий тезисный разбор: что произошло, почему так, тенденция, и ОДНА конкретная рекомендация на основе подмеченной связи.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров про «не медицинский совет».\\n\\nФормат ответа СТРОГО такой (придерживайся структуры, без отсебятины):\\n\\n🌅 *Доброе утро*\\n\\n*Вчера:* одной строкой через · — сон + score, HRV, шаги, стресс, Body Battery min. Пример: «сон 7,1 ч (81) · HRV 36 · 31019 шагов · стресс 43 · BB min 46».\\n\\n*Тенденция:* 1–2 строки про последние 7/14/30 дней. Используй конкретные дельты из trends. Ищи только то, что РЕАЛЬНО важно (большие сдвиги, streak'и). Если всё ровно — так и пиши «без сдвигов». Пример: «стресс за неделю +18 % к месяцу, третий день подряд выше базы. Сон стабилен (7,3 ч за 30 дней)».\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками и календарём. Опирайся на daily_last_7 (там для каждого дня кол-во events_evening и events_late) — соотноси с сном и HRV. Пример: «3 вечера подряд встречи после 21:00 → сон стабильно <7 ч и HRV ниже среднего». Если связи не видишь — пропусти этот блок целиком.\\n\\n*Рекомендация:* ровно ОДНА строка, конкретная, на основе подмеченной связи. Пример: «не ставь встречи после 20:00 в ближайшие 3 дня — дай HRV вернуться к базе (43)». Если связи не нашлось — пропусти этот блок (лучше тишина, чем шаблонный совет).\\n\\n*Погода:* эмодзи + температура + одна короткая практичная фраза («куртка пригодится» / «зонт» / «без шапки»). Если weather=null — пропусти весь блок.\\n\\n*Сегодня:* до 5 событий с временем, по строке. Если пусто — «день твой».\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила анализа:\\n— Округляй: сон до десятых, всё остальное до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней по любой метрике — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % — отметь как «сильный сдвиг».\\n— Связи строй ТОЛЬКО на данных из daily_last_7 (events_evening, events_late, sleep, hrv). Не выдумывай.\\n— Никаких общих советов из учебника («больше воды», «гуляй»). Только то, что следует из ТВОИХ данных.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без списков-буллетов кроме блока «Сегодня».\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}"
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1500,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery + календарь встреч). Каждое утро в Telegram присылаешь короткий тезисный разбор: что произошло, почему так, тенденция, и ОДНА конкретная рекомендация на основе подмеченной связи.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров про «не медицинский совет».\\n\\nФормат ответа СТРОГО такой (придерживайся структуры, без отсебятины):\\n\\n🌅 *Доброе утро*\\n\\n*Вчера:* одной строкой через · — сон + score, HRV, шаги, стресс, Body Battery min. Пример: «сон 7,1 ч (81) · HRV 36 · 31019 шагов · стресс 43 · BB min 46».\\n\\n*Тенденция:* 1–2 строки про последние 7/14/30 дней. Используй конкретные дельты из trends. Ищи только то, что РЕАЛЬНО важно (большие сдвиги, streak'и). Если всё ровно — так и пиши «без сдвигов». Пример: «стресс за неделю +18 % к месяцу, третий день подряд выше базы. Сон стабилен (7,3 ч за 30 дней)».\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками и календарём. Опирайся на daily_last_7 (там для каждого дня кол-во events_evening и events_late) — соотноси с сном и HRV. Пример: «3 вечера подряд встречи после 21:00 → сон стабильно <7 ч и HRV ниже среднего». Если связи не видишь — пропусти этот блок целиком.\\n\\n*Рекомендация:* ровно ОДНА строка, конкретная, на основе подмеченной связи. Пример: «не ставь встречи после 20:00 в ближайшие 3 дня — дай HRV вернуться к базе (43)». Если связи не нашлось — пропусти этот блок (лучше тишина, чем шаблонный совет).\\n\\n*Сегодня:* до 5 событий с временем, по строке. Если events_today пуст — «день твой».\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила анализа:\\n— Округляй: сон до десятых, всё остальное до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней по любой метрике — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % — отметь как «сильный сдвиг».\\n— Связи строй ТОЛЬКО на данных из daily_last_7 (events_evening, events_late, sleep, hrv). Не выдумывай.\\n— Никаких общих советов из учебника («больше воды», «гуляй»). Только то, что следует из ТВОИХ данных.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без списков-буллетов кроме блока «Сегодня».\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}"
       },
       "id": "claude",
       "name": "Claude: разбор",
@@ -195,7 +155,7 @@
           "name": "Anthropic x-api-key"
         }
       },
-      "notes": "Credential: Header Auth, имя заголовка = x-api-key, значение = твой ANTHROPIC_API_KEY. При сбое (rate limit, таймаут) повторяем 3 раза с паузой 10с; если все попытки упали — Telegram-узел отправит fallback-сообщение с сырыми метриками."
+      "notes": "Credential: Header Auth, имя заголовка = x-api-key, значение = твой ANTHROPIC_API_KEY."
     },
     {
       "parameters": {
@@ -220,91 +180,27 @@
   ],
   "connections": {
     "Каждое утро 08:30 МСК": {
-      "main": [
-        [
-          {
-            "node": "Конфиг",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Конфиг", "type": "main", "index": 0 }]]
     },
     "Конфиг": {
       "main": [
         [
-          {
-            "node": "Тянем Garmin CSV (история)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Календарь за 7 дней + сегодня",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Тянем погоду",
-            "type": "main",
-            "index": 0
-          }
+          { "node": "Тянем Garmin CSV (история)", "type": "main", "index": 0 },
+          { "node": "Тянем события из Sheets", "type": "main", "index": 0 }
         ]
       ]
     },
     "Тянем Garmin CSV (история)": {
-      "main": [
-        [
-          {
-            "node": "Считаем тренды и связи",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Считаем тренды и связи", "type": "main", "index": 0 }]]
     },
-    "Календарь за 7 дней + сегодня": {
-      "main": [
-        [
-          {
-            "node": "Считаем тренды и связи",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Тянем погоду": {
-      "main": [
-        [
-          {
-            "node": "Считаем тренды и связи",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Тянем события из Sheets": {
+      "main": [[{ "node": "Считаем тренды и связи", "type": "main", "index": 0 }]]
     },
     "Считаем тренды и связи": {
-      "main": [
-        [
-          {
-            "node": "Claude: разбор",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Claude: разбор", "type": "main", "index": 0 }]]
     },
     "Claude: разбор": {
-      "main": [
-        [
-          {
-            "node": "Отправить в Telegram",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{ "node": "Отправить в Telegram", "type": "main", "index": 0 }]]
     }
   },
   "settings": {
