@@ -25,8 +25,9 @@ LifeDashboard/
 ├── scripts/
 │   ├── garmin_sync.py           # Garmin → Google Sheets (cron 08:05 МСК)
 │   ├── clear_gcal_events.py     # Одноразовая чистка вкладки gcal_events
-│   ├── fatsecret_auth.py        # OAuth 1.0a setup для FatSecret (одноразово)
-│   └── fatsecret_sync.py        # FatSecret → Sheets (заготовка, ждёт dev account)
+│   ├── fatsecret_auth.py        # OAuth 1.0a setup для FatSecret Premier (одноразово)
+│   ├── fatsecret_sync.py        # FatSecret Premier API → Sheets (если есть Premier)
+│   └── fatsecret_scraper.py     # FatSecret WEB scraper (бесплатная альтернатива)
 ├── tests/
 │   └── test_garmin_sync.py      # Unit-тесты для парсеров (HRV, Body Battery, fetch)
 ├── dashboard/                   # iPhone-дашборд (HTML, деплоится на GitHub Pages)
@@ -36,10 +37,12 @@ LifeDashboard/
 │   ├── icon.svg
 │   └── README.md
 ├── n8n/                         # workflow-файлы для n8n
-│   ├── gcal-sync-workflow.json         # Google Calendar → Sheets, ежедневно 08:00 МСК
-│   ├── morning-digest-workflow.json    # утренний дайджест 08:30 МСК
-│   ├── weekly-digest-workflow.json     # недельный итог вс 19:00 МСК
+│   ├── gcal-sync-workflow.json              # Google Calendar → Sheets, ежедневно 08:00 МСК
+│   ├── morning-digest-workflow.json         # утренний дайджест 08:30 МСК
+│   ├── weekly-digest-workflow.json          # недельный итог вс 19:00 МСК
+│   ├── health-reminders-workflow.json       # напоминания по здоровью 09:00 МСК (sheets-driven)
 │   ├── claude-prompt.md
+│   ├── health-reminders-README.md
 │   └── README.md
 ├── .secrets/
 │   ├── service-account.json     # Ключ Google сервис-аккаунта (в .gitignore!)

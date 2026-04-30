@@ -3,6 +3,13 @@ garth
 gspread>=6.0.0
 google-auth>=2.25.0
 python-dotenv>=1.0.0
-# FatSecret OAuth 1.0a — для scripts/fatsecret_*.py (можно поставить
-# отдельно, если FS пока не используешь):
+# FatSecret OAuth 1.0a — для scripts/fatsecret_sync.py / fatsecret_auth.py
+# (если FS Premier API):
 requests-oauthlib>=2.0.0
+
+# FatSecret web scraper — бесплатная альтернатива Premier
+# (scripts/fatsecret_scraper.py). Требует Chrome/Chromium.
+# Установка только если будешь использовать scraper:
+#     python3.11 -m pip install selenium webdriver-manager --break-system-packages
+# selenium>=4.15.0
+# webdriver-manager>=4.0.0

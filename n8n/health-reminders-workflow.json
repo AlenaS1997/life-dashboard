@@ -1,0 +1,196 @@
+{
+  "name": "Life Dashboard — Health Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Каждый день 09:00 МСК",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "notes": "Cron в UTC: 06:00 = 09:00 МСК. После всех остальных дайджестов, чтобы не сливаться в кучу."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+              "type": "string"
+            },
+            {
+              "id": "reminders-tab",
+              "name": "reminders_tab",
+              "value": "health_reminders",
+              "type": "string"
+            },
+            {
+              "id": "chat-id",
+              "name": "telegram_chat_id",
+              "value": "REPLACE_ME_WITH_YOUR_CHAT_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config",
+      "name": "Конфиг",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $json.reminders_tab }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "fetch-reminders",
+      "name": "Тянем reminders CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсим CSV, фильтруем reminder'ы которые надо отправить сегодня,\n// рассчитываем next_date после отправки.\nconst raw = $('Тянем reminders CSV').item.json.data || $('Тянем reminders CSV').item.json;\n\nfunction parseCsv(text) {\n  if (typeof text !== 'string') text = String(text);\n  const lines = text.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\n\nconst rows = parseCsv(raw);\nconst today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC\n\nfunction addDays(dateStr, days) {\n  const d = new Date(dateStr + 'T00:00:00Z');\n  d.setUTCDate(d.getUTCDate() + days);\n  return d.toISOString().slice(0, 10);\n}\n\nfunction nextDate(currentDate, frequency) {\n  const f = String(frequency || '').trim().toLowerCase();\n  if (f === 'once' || f === '') return null; // больше не повторять\n  if (f === 'daily') return addDays(currentDate, 1);\n  if (f === 'weekly') return addDays(currentDate, 7);\n  if (f === 'monthly') return addDays(currentDate, 30);\n  if (f === 'yearly') return addDays(currentDate, 365);\n  // Число — раз в N дней\n  const n = parseInt(f, 10);\n  if (Number.isFinite(n) && n > 0) return addDays(currentDate, n);\n  return null;\n}\n\nconst dueToday = [];\nfor (const r of rows) {\n  const enabled = String(r.enabled || 'TRUE').trim().toUpperCase();\n  if (enabled === 'FALSE' || enabled === '0' || enabled === 'NO') continue;\n  const nd = (r.next_date || '').trim();\n  if (!nd) continue;\n  if (nd > today) continue; // ещё не пора (включая reminder'ы из будущего)\n  // Для просроченных тоже отправим (если nd < today — значит пропустили день, лучше поздно).\n\n  const newNext = nextDate(today, r.frequency);\n  const newEnabled = newNext == null ? 'FALSE' : enabled; // once → выключаем\n\n  dueToday.push({\n    json: {\n      reminder_id: r.reminder_id || `${r.title}-${nd}`,\n      title: r.title || '(без названия)',\n      description: r.description || '',\n      next_date: newNext || nd, // если once — оставляем старую (в Sheets просто enabled=FALSE)\n      frequency: r.frequency || 'once',\n      enabled: newEnabled,\n      last_sent: today,\n    },\n  });\n}\n\nif (!dueToday.length) {\n  // Возвращаем служебный объект чтобы дальнейшие ноды не запускались впустую\n  return [{ json: { __nothing: true } }];\n}\nreturn dueToday;"
+      },
+      "id": "filter-due",
+      "name": "Фильтр: что отправлять сегодня",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-reminder",
+              "leftValue": "={{ $json.__nothing }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "guard-empty",
+      "name": "Есть ли reminder'ы?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Конфиг').item.json.telegram_chat_id }}",
+        "text": "=🔔 *Напоминание*\n\n*{{ $json.title }}*{{ $json.description ? '\\n\\n' + $json.description : '' }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-send",
+      "name": "Отправить в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 240],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_TELEGRAM_CRED_ID",
+          "name": "Life Dashboard Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.reminders_tab }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": ["reminder_id"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-update",
+      "name": "Обновить next_date в Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1340, 360],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "appendOrUpdate с matchingColumns=reminder_id — найдёт строку и обновит next_date / enabled / last_sent. Если reminder_id не совпал — добавит новую (не наш кейс)."
+    }
+  ],
+  "connections": {
+    "Каждый день 09:00 МСК": {
+      "main": [[{ "node": "Конфиг", "type": "main", "index": 0 }]]
+    },
+    "Конфиг": {
+      "main": [[{ "node": "Тянем reminders CSV", "type": "main", "index": 0 }]]
+    },
+    "Тянем reminders CSV": {
+      "main": [[{ "node": "Фильтр: что отправлять сегодня", "type": "main", "index": 0 }]]
+    },
+    "Фильтр: что отправлять сегодня": {
+      "main": [[{ "node": "Есть ли reminder'ы?", "type": "main", "index": 0 }]]
+    },
+    "Есть ли reminder'ы?": {
+      "main": [
+        [
+          { "node": "Отправить в Telegram", "type": "main", "index": 0 },
+          { "node": "Обновить next_date в Sheets", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow"
+  },
+  "tags": ["life-dashboard", "telegram", "reminders"]
+}
