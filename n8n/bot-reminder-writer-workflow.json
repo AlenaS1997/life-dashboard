@@ -1,0 +1,220 @@
+{
+  "name": "Life Dashboard — Bot Reminder Writer",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram: входящее сообщение",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_TELEGRAM_CRED_ID",
+          "name": "Life Dashboard Bot"
+        }
+      },
+      "notes": "Слушает все сообщения от пользователя. n8n автоматически регистрирует webhook у Telegram при активации workflow."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+              "type": "string"
+            },
+            {
+              "id": "reminders-tab",
+              "name": "reminders_tab",
+              "value": "health_reminders",
+              "type": "string"
+            },
+            {
+              "id": "user-text",
+              "name": "user_text",
+              "value": "={{ $('Telegram: входящее сообщение').item.json.message.text }}",
+              "type": "string"
+            },
+            {
+              "id": "chat-id",
+              "name": "chat_id",
+              "value": "={{ $('Telegram: входящее сообщение').item.json.message.chat.id }}",
+              "type": "string"
+            },
+            {
+              "id": "today-iso",
+              "name": "today_iso",
+              "value": "={{ $now.toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "config",
+      "name": "Конфиг",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 400,\n  \"system\": \"Ты парсер напоминаний. Пользователь пишет тебе свободный текст в Telegram, ты возвращаешь СТРОГО JSON без markdown-обёртки и без объяснений.\\n\\nСегодняшняя дата: {{today_iso}}.\\n\\nФормат ответа:\\n{\\\"intent\\\": \\\"reminder\\\" | \\\"unknown\\\", \\\"title\\\": \\\"...\\\", \\\"description\\\": \\\"...\\\", \\\"next_date\\\": \\\"YYYY-MM-DD\\\", \\\"frequency\\\": \\\"once\\\"|\\\"daily\\\"|\\\"weekly\\\"|\\\"monthly\\\"|\\\"yearly\\\"|число_дней}\\n\\nПравила:\\n— Если в сообщении есть конкретная дата или относительное время («через неделю», «завтра», «3 мая», «каждый понедельник») — intent=reminder.\\n— Если непонятно или это вопрос/приветствие — intent=unknown, остальные поля пустые.\\n— Дата в формате YYYY-MM-DD. Считай относительные даты от сегодняшней.\\n— Если сказано «каждый день/неделю/месяц/год» — frequency соответственно daily/weekly/monthly/yearly.\\n— Если сказано «раз в N дней» — frequency=N (целое число).\\n— По умолчанию frequency=once.\\n— title — короткое название действия (3-5 слов), description — пусто или дополнительный контекст.\\n— Возвращай только валидный JSON. Не оборачивай в ```json``` или иные блоки.\\n\\nПримеры:\\nВход: «30 мая - сдать анализы крови»\\nВыход: {\\\"intent\\\":\\\"reminder\\\",\\\"title\\\":\\\"Сдать анализы крови\\\",\\\"description\\\":\\\"\\\",\\\"next_date\\\":\\\"2026-05-30\\\",\\\"frequency\\\":\\\"once\\\"}\\n\\nВход: «каждый понедельник взвеситься»\\nВыход: {\\\"intent\\\":\\\"reminder\\\",\\\"title\\\":\\\"Взвеситься\\\",\\\"description\\\":\\\"\\\",\\\"next_date\\\":\\\"<следующий понедельник>\\\",\\\"frequency\\\":\\\"weekly\\\"}\\n\\nВход: «привет»\\nВыход: {\\\"intent\\\":\\\"unknown\\\",\\\"title\\\":\\\"\\\",\\\"description\\\":\\\"\\\",\\\"next_date\\\":\\\"\\\",\\\"frequency\\\":\\\"once\\\"}\",\n  \"messages\": [\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($('Конфиг').item.json.user_text) }}}\n  ]\n}"
+      },
+      "id": "claude-parse",
+      "name": "Claude: парсит reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
+          "name": "Anthropic x-api-key"
+        }
+      },
+      "notes": "Используем Claude Haiku 4.5 — он дешевле и быстрее, для парсинга простых строк хватает."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсим JSON-ответ от Claude и готовим row для Sheets / ответ для Telegram.\nconst raw = $input.first().json;\nlet text = '';\ntry {\n  text = raw.content[0].text || '';\n} catch (e) {\n  text = '';\n}\n\n// Иногда Claude всё равно оборачивает в ```json``` — снимем.\ntext = text.replace(/```json\\s*/i, '').replace(/```\\s*$/, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(text);\n} catch (e) {\n  parsed = { intent: 'unknown', _parse_error: text.slice(0, 200) };\n}\n\nconst userText = $('Конфиг').item.json.user_text || '';\nconst chatId = $('Конфиг').item.json.chat_id;\n\nif (parsed.intent !== 'reminder' || !parsed.next_date || !parsed.title) {\n  // Не reminder — отправим уточнение\n  return [{\n    json: {\n      action: 'reply_only',\n      chat_id: chatId,\n      reply_text: '🤔 Не понял как создать напоминание. Напиши в формате:\\n\\n• «30 мая — сдать анализы»\\n• «через неделю — стоматолог»\\n• «каждый понедельник — взвеситься»\\n• «раз в 14 дней — стирать постельное»',\n    }\n  }];\n}\n\n// Готовим row для health_reminders\nconst slug = parsed.title\n  .toLowerCase()\n  .replace(/[^a-zа-яё0-9]+/gi, '-')\n  .replace(/-+/g, '-')\n  .replace(/^-|-$/g, '')\n  .slice(0, 30);\nconst reminderId = slug + '-' + Date.now().toString(36);\n\nconst row = {\n  reminder_id: reminderId,\n  title: parsed.title,\n  description: parsed.description || '',\n  next_date: parsed.next_date,\n  frequency: String(parsed.frequency || 'once'),\n  enabled: 'TRUE',\n  last_sent: '',\n};\n\nreturn [{\n  json: {\n    action: 'add_reminder',\n    chat_id: chatId,\n    row,\n    reply_text: `✅ Запомнила:\\n*${parsed.title}*\\nна *${parsed.next_date}* (${row.frequency})`,\n  }\n}];"
+      },
+      "id": "parse-claude",
+      "name": "Распарсить ответ Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Пропускаем дальше только если action=add_reminder.\n// Если intent=unknown — возвращаем [], следующая Sheets-нода не выполнится.\nconst item = $input.first().json;\nif (item && item.action === 'add_reminder' && item.row && item.row.reminder_id) {\n  return [{ json: item }];\n}\nreturn [];"
+      },
+      "id": "filter-add-reminder",
+      "name": "Только если add_reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.sheet_id }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Конфиг').item.json.reminders_tab }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reminder_id": "={{ $json.row.reminder_id }}",
+            "title": "={{ $json.row.title }}",
+            "description": "={{ $json.row.description }}",
+            "next_date": "={{ $json.row.next_date }}",
+            "frequency": "={{ $json.row.frequency }}",
+            "enabled": "={{ $json.row.enabled }}",
+            "last_sent": "={{ $json.row.last_sent }}"
+          },
+          "matchingColumns": ["reminder_id"],
+          "schema": [
+            { "id": "reminder_id", "displayName": "reminder_id", "type": "string" },
+            { "id": "title", "displayName": "title", "type": "string" },
+            { "id": "description", "displayName": "description", "type": "string" },
+            { "id": "next_date", "displayName": "next_date", "type": "string" },
+            { "id": "frequency", "displayName": "frequency", "type": "string" },
+            { "id": "enabled", "displayName": "enabled", "type": "string" },
+            { "id": "last_sent", "displayName": "last_sent", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sheets-add",
+      "name": "Добавить в health_reminders",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1340, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "executeOnce": false,
+      "alwaysOutputData": false,
+      "notes": "Запускается только когда action=add_reminder. Иначе обходится через alwaysOutputData=false и условие ниже.",
+      "disabled": false
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.reply_text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-reply",
+      "name": "Ответить в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 400],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_WITH_TELEGRAM_CRED_ID",
+          "name": "Life Dashboard Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram: входящее сообщение": {
+      "main": [[{ "node": "Конфиг", "type": "main", "index": 0 }]]
+    },
+    "Конфиг": {
+      "main": [[{ "node": "Claude: парсит reminder", "type": "main", "index": 0 }]]
+    },
+    "Claude: парсит reminder": {
+      "main": [[{ "node": "Распарсить ответ Claude", "type": "main", "index": 0 }]]
+    },
+    "Распарсить ответ Claude": {
+      "main": [
+        [
+          { "node": "Только если add_reminder", "type": "main", "index": 0 },
+          { "node": "Ответить в Telegram", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Только если add_reminder": {
+      "main": [[{ "node": "Добавить в health_reminders", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow"
+  },
+  "tags": ["life-dashboard", "telegram", "reminders", "bot-gateway"]
+}
