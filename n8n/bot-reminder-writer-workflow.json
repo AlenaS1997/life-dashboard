@@ -98,7 +98,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Парсим JSON-ответ от Claude и готовим row для Sheets / ответ для Telegram.\nconst raw = $input.first().json;\nlet text = '';\ntry {\n  text = raw.content[0].text || '';\n} catch (e) {\n  text = '';\n}\n\n// Иногда Claude всё равно оборачивает в ```json``` — снимем.\ntext = text.replace(/```json\\s*/i, '').replace(/```\\s*$/, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(text);\n} catch (e) {\n  parsed = { intent: 'unknown', _parse_error: text.slice(0, 200) };\n}\n\nconst userText = $('Конфиг').item.json.user_text || '';\nconst chatId = $('Конфиг').item.json.chat_id;\n\nif (parsed.intent !== 'reminder' || !parsed.next_date || !parsed.title) {\n  // Не reminder — отправим уточнение\n  return [{\n    json: {\n      action: 'reply_only',\n      chat_id: chatId,\n      reply_text: '🤔 Не понял как создать напоминание. Напиши в формате:\\n\\n• «30 мая — сдать анализы»\\n• «через неделю — стоматолог»\\n• «каждый понедельник — взвеситься»\\n• «раз в 14 дней — стирать постельное»',\n    }\n  }];\n}\n\n// Готовим row для health_reminders\nconst slug = parsed.title\n  .toLowerCase()\n  .replace(/[^a-zа-яё0-9]+/gi, '-')\n  .replace(/-+/g, '-')\n  .replace(/^-|-$/g, '')\n  .slice(0, 30);\nconst reminderId = slug + '-' + Date.now().toString(36);\n\nconst row = {\n  reminder_id: reminderId,\n  title: parsed.title,\n  description: parsed.description || '',\n  next_date: parsed.next_date,\n  frequency: String(parsed.frequency || 'once'),\n  enabled: 'TRUE',\n  last_sent: '',\n};\n\nreturn [{\n  json: {\n    action: 'add_reminder',\n    chat_id: chatId,\n    row,\n    reply_text: `✅ Запомнила:\\n*${parsed.title}*\\nна *${parsed.next_date}* (${row.frequency})`,\n  }\n}];"
+        "jsCode": "// Парсим JSON-ответ от Claude. Возвращаем плоский объект — поля колонок на верхнем уровне для autoMap в Sheets.\nconst raw = $input.first().json;\nlet text = '';\ntry { text = raw.content[0].text || ''; } catch (e) { text = ''; }\n\n// Иногда Claude всё равно оборачивает в ```json``` — снимем.\ntext = text.replace(/```json\\s*/i, '').replace(/```\\s*$/, '').trim();\n\nlet parsed;\ntry { parsed = JSON.parse(text); }\ncatch (e) { parsed = { intent: 'unknown', _parse_error: text.slice(0, 200) }; }\n\nconst chatId = $('Конфиг').item.json.chat_id;\n\nif (parsed.intent !== 'reminder' || !parsed.next_date || !parsed.title) {\n  return [{\n    json: {\n      action: 'reply_only',\n      chat_id: chatId,\n      reply_text: '🤔 Не понял как создать напоминание. Напиши в формате:\\n\\n• «30 мая — сдать анализы»\\n• «через неделю — стоматолог»\\n• «каждый понедельник — взвеситься»\\n• «раз в 14 дней — стирать постельное»',\n    }\n  }];\n}\n\nconst slug = parsed.title.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);\nconst reminderId = slug + '-' + Date.now().toString(36);\n\nreturn [{\n  json: {\n    action: 'add_reminder',\n    chat_id: chatId,\n    reply_text: `✅ Запомнила:\\n*${parsed.title}*\\nна *${parsed.next_date}* (${String(parsed.frequency || 'once')})`,\n    // Поля для Sheets — на верхнем уровне для autoMap:\n    reminder_id: reminderId,\n    title: parsed.title,\n    description: parsed.description || '',\n    next_date: parsed.next_date,\n    frequency: String(parsed.frequency || 'once'),\n    enabled: 'TRUE',\n    last_sent: '',\n  }\n}];"
       },
       "id": "parse-claude",
       "name": "Распарсить ответ Claude",
@@ -108,7 +108,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Пропускаем дальше только если action=add_reminder.\n// Если intent=unknown — возвращаем [], следующая Sheets-нода не выполнится.\nconst item = $input.first().json;\nif (item && item.action === 'add_reminder' && item.row && item.row.reminder_id) {\n  return [{ json: item }];\n}\nreturn [];"
+        "jsCode": "// Пропускаем дальше только если action=add_reminder.\n// Поля row теперь плоские (на верхнем уровне) — это нужно для autoMapInputData в Sheets.\nconst item = $input.first().json;\nif (item && item.action === 'add_reminder' && item.reminder_id) {\n  return [{ json: item }];\n}\nreturn [];"
       },
       "id": "filter-add-reminder",
       "name": "Только если add_reminder",
@@ -118,38 +118,22 @@
     },
     {
       "parameters": {
-        "operation": "appendOrUpdate",
+        "operation": "append",
         "documentId": {
           "__rl": true,
-          "value": "={{ $('Конфиг').item.json.sheet_id }}",
+          "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
           "mode": "id"
         },
         "sheetName": {
           "__rl": true,
-          "value": "={{ $('Конфиг').item.json.reminders_tab }}",
+          "value": "health_reminders",
           "mode": "name"
         },
         "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "reminder_id": "={{ $json.row.reminder_id }}",
-            "title": "={{ $json.row.title }}",
-            "description": "={{ $json.row.description }}",
-            "next_date": "={{ $json.row.next_date }}",
-            "frequency": "={{ $json.row.frequency }}",
-            "enabled": "={{ $json.row.enabled }}",
-            "last_sent": "={{ $json.row.last_sent }}"
-          },
-          "matchingColumns": ["reminder_id"],
-          "schema": [
-            { "id": "reminder_id", "displayName": "reminder_id", "type": "string" },
-            { "id": "title", "displayName": "title", "type": "string" },
-            { "id": "description", "displayName": "description", "type": "string" },
-            { "id": "next_date", "displayName": "next_date", "type": "string" },
-            { "id": "frequency", "displayName": "frequency", "type": "string" },
-            { "id": "enabled", "displayName": "enabled", "type": "string" },
-            { "id": "last_sent", "displayName": "last_sent", "type": "string" }
-          ]
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
         },
         "options": {}
       },
