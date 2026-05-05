@@ -12,7 +12,7 @@
 |----------|---------|--------|
 | Garmin | Сон, HRV, шаги, стресс, Body Battery | ✅ GitHub Actions cron 08:05 МСК. |
 | Google Calendar (Fluffy) | События дня | ✅ n8n workflow `gcal-sync` опубликован, cron 08:00 МСК. Тянет из календаря `Fluffyismylifemoscow@gmail.com` (расшарен с основным аккаунтом). Make.com отключён. |
-| FatSecret | Питание (калории, БЖУ) | 🟡 Каркас готов: `scripts/fatsecret_sync.py` + `scripts/fatsecret_auth.py`. Ждёт регистрацию dev account на platform.fatsecret.com + проверку доступности food diary endpoint (может потребоваться Premier $10–20/мес). |
+| FatSecret | Питание (калории, БЖУ) | ✅ Web-scraper `scripts/fatsecret_scraper.py` парсит Diary.aspx?pa=fj через Selenium. GitHub Actions cron 22:00 МСК (`.github/workflows/fatsecret-sync.yml`). CI логинится через cookies из секрета `FATSECRET_COOKIES_JSON` (экспорт — `scripts/fatsecret_export_cookies.py`). Бэкфилл за 30 дней есть в `fatsecret_daily`. |
 | Whoop | Восстановление | Не подключён (опционально) |
 
 ## Инфраструктура
@@ -23,8 +23,9 @@
   - `morning-digest` — готов в репо, **ждёт активации** (нужны Telegram + Anthropic credentials).
   - `weekly-digest` — готов в репо, ждёт тех же credentials.
 - **Railway**: trial кончается через ~10 дней ($5/мес Hobby после).
-- **GitHub Actions**: два workflow в `.github/workflows/`:
+- **GitHub Actions**: три workflow в `.github/workflows/`:
   - `garmin-sync.yml` — cron 08:05 МСК, актуальный.
+  - `fatsecret-sync.yml` — cron 22:00 МСК, активен. Ставит Chrome через `browser-actions/setup-chrome@v1`, логин через `FATSECRET_COOKIES_JSON` (Secret).
   - `pages.yml` — деплой `dashboard/` на Pages при пуше (вручную через workflow_dispatch тоже).
 - **Google Cloud**: проект `life-dashboard-494212` (номер `1095452022430`).
   - Service account: `life-dashboard-writer@life-dashboard-494212.iam.gserviceaccount.com`
