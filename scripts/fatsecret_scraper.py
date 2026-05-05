@@ -456,40 +456,66 @@ def login_with_cookies(driver, cookies_json: str) -> None:
         cookies = json.loads(cookies_json)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"FATSECRET_COOKIES_JSON не парсится как JSON: {e}")
+    log.info(f"В JSON всего cookies: {len(cookies)}")
 
-    # Selenium add_cookie работает только если мы уже на нужном домене.
+    # Selenium add_cookie требует, чтобы мы уже были на matching-домене.
     driver.get("https://www.fatsecret.com/")
     time.sleep(2)
 
     added, failed = 0, 0
+    added_names: list[str] = []
     for c in cookies:
-        # add_cookie не понимает sameSite=None и ряд служебных полей.
+        # add_cookie не понимает sameSite=None и ряд служебных полей
+        # из Chrome DevTools-формата.
         c.pop("sameSite", None)
         c.pop("storeId", None)
         c.pop("hostOnly", None)
         c.pop("session", None)
         # expirationDate (формат Chrome DevTools) → expiry (selenium).
         if "expirationDate" in c and "expiry" not in c:
-            c["expiry"] = int(c.pop("expirationDate"))
+            try:
+                c["expiry"] = int(c.pop("expirationDate"))
+            except Exception:
+                c.pop("expirationDate", None)
         try:
             driver.add_cookie(c)
             added += 1
+            added_names.append(c.get("name", "?"))
         except Exception as e:
             failed += 1
             log.warning(f"cookie '{c.get('name')}' не подсадился: {e}")
+    log.info(f"Подсажено cookies: {added}, ошибок: {failed}")
+    if added_names:
+        log.info(f"Имена: {', '.join(sorted(set(added_names)))}")
 
-    log.info(f"Подсажено cookies: {added} (ошибок: {failed})")
-    # Перезагружаем страницу — теперь FS должен считать нас залогиненными.
-    driver.get("https://www.fatsecret.com/")
-    time.sleep(2)
-    if not is_logged_in(driver):
+    # Проверяем сессию через настоящий Diary URL: если cookies живые,
+    # FS отдаст страницу дневника; если нет — отредиректит на Auth.aspx.
+    # Это надёжнее, чем смотреть на текст "sign out" в page_source —
+    # на главной FS прячет его в дропдауне меню и в HTML его может не быть.
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    test_url = DIARY_URL_TPL.format(date_int=fs_date_int(yesterday))
+    log.info(f"Проверка сессии через {test_url}")
+    driver.get(test_url)
+    time.sleep(3)
+
+    final_url = (driver.current_url or "").lower()
+    log.info(f"После запроса diary URL: {driver.current_url}")
+    if "auth.aspx" in final_url:
+        # Сохраним HTML страницы — workflow приложит как артефакт,
+        # будет видно, что именно FS показал.
+        try:
+            (DATA_DIR / "fatsecret_cookie_login_failed.html").write_text(
+                driver.page_source, encoding="utf-8"
+            )
+        except Exception:
+            pass
         raise RuntimeError(
-            "Cookies не сработали — FS не считает залогиненным. "
+            f"Cookies не приняты — FS отредиректил на {driver.current_url}. "
             "Скорее всего они истекли. Обнови их локально через "
-            "scripts/fatsecret_export_cookies.py и положи свежий JSON "
-            "в GitHub Secret FATSECRET_COOKIES_JSON."
+            "scripts/fatsecret_export_cookies.py и положи свежий JSON в "
+            "GitHub Secret FATSECRET_COOKIES_JSON."
         )
-    log.info(f"Cookies приняты, залогинены. URL: {driver.current_url}")
+    log.info("Cookies приняты, сессия живая.")
 
 
 def fetch_diary(driver, target_date: str) -> list[dict]:
