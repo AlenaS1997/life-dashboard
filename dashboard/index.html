@@ -198,19 +198,30 @@
       line-height: 1;
     }
 
-    /* Heatmap сна (30 дней) */
+    /* Heatmap сна (30 дней) — компактный, с числом часов внутри */
     .heatmap {
       display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 4px;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 3px;
     }
     .heat-cell {
-      aspect-ratio: 1 / 1;
+      aspect-ratio: auto;
+      height: 24px;
       border-radius: 4px;
       background: rgba(156, 136, 255, 0.10);
       position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.85);
+      font-feature-settings: "tnum" 1;
     }
-    .heat-cell.empty { background: rgba(255, 255, 255, 0.04); }
+    .heat-cell.empty {
+      background: rgba(255, 255, 255, 0.04);
+      color: transparent;
+    }
     .heat-legend {
       display: flex;
       align-items: center;
@@ -311,8 +322,55 @@
       color: var(--text);
     }
 
-    /* Питание — те же metric-карточки в today-grid (дополнительных стилей не надо).
-       Серии в норме — компактная сетка из 4 счётчиков. */
+    /* Питание — компактный блок: одна крупная ккал + макросы в строке.
+       Цвет числа — good/warn/bad по % отклонения от цели. */
+    .nutri-compact { display: flex; flex-direction: column; gap: 8px; }
+    .nutri-line {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .nutri-kcal-value {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+    .nutri-kcal-unit {
+      font-size: 14px;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+    .nutri-kcal-vs {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+    .nutri-macros {
+      display: flex;
+      gap: 14px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .nutri-macro b {
+      color: var(--text-dim);
+      margin-right: 3px;
+      font-weight: 500;
+    }
+    .nutri-macro.status-good { color: #8fdc92; }
+    .nutri-macro.status-warn { color: #ffd54f; }
+    .nutri-macro.status-bad  { color: #ffa78c; }
+    .nutri-kcal-value.status-good { color: #8fdc92; }
+    .nutri-kcal-value.status-warn { color: #ffd54f; }
+    .nutri-kcal-value.status-bad  { color: #ffa78c; }
+    .nutri-empty {
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 4px 0;
+    }
+
+    /* Серии в норме — компактная сетка из 4 счётчиков. */
     .nutri-streaks {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -696,11 +754,8 @@
 
     <section>
       <h2>Питание · вчера</h2>
-      <div class="today-grid" id="nutrition-grid">
-        <div class="metric wide"><div class="skeleton-bar w-30"></div><div class="skeleton-bar tall w-60" style="margin-top:12px"></div></div>
-        <div class="metric"><div class="skeleton-bar w-50"></div><div class="skeleton-bar tall w-70" style="margin-top:12px"></div></div>
-        <div class="metric"><div class="skeleton-bar w-50"></div><div class="skeleton-bar tall w-70" style="margin-top:12px"></div></div>
-        <div class="metric"><div class="skeleton-bar w-50"></div><div class="skeleton-bar tall w-70" style="margin-top:12px"></div></div>
+      <div class="nutri-compact" id="nutrition-block">
+        <div class="nutri-empty">загрузка…</div>
       </div>
     </section>
 
@@ -792,6 +847,9 @@
     EVENTS_TAB: "gcal_events",
     FATSECRET_TAB: "fatsecret_daily",
     GOALS_TAB: "nutrition_goals",
+    // Дефолтная цель КБЖУ — используется, если в Sheets вкладка
+    // nutrition_goals пустая. После /goal в боте — берём из Sheets.
+    DEFAULT_GOAL: { kcal: 2190, protein_g: 190, fat_g: 70, carbs_g: 200 },
     // true — всегда показывать demo-данные (для превью дизайна)
     FORCE_MOCK: false,
   };
@@ -1191,11 +1249,12 @@
       if (!isFinite(h) || h <= 0) {
         return `<div class="heat-cell empty" title="${escapeHtml(r.date || "")}: нет данных"></div>`;
       }
-      // Маппим 4..9 ч → opacity 0.15..1.00. Меньше 4 — нижний край, больше 9 — верхний.
+      // Маппим 4..9 ч → opacity 0.20..1.00.
       const norm = Math.max(0, Math.min(1, (h - 4) / 5));
-      const alpha = 0.15 + norm * 0.85;
+      const alpha = 0.20 + norm * 0.80;
       const tip = `${escapeHtml(r.date || "")}: ${h.toFixed(1).replace(".", ",")} ч`;
-      return `<div class="heat-cell" style="background: rgba(156,136,255,${alpha.toFixed(2)})" title="${tip}"></div>`;
+      const txt = h.toFixed(1).replace(".", ",");
+      return `<div class="heat-cell" style="background: rgba(156,136,255,${alpha.toFixed(2)})" title="${tip}">${txt}</div>`;
     }).join("");
   }
 
@@ -1337,79 +1396,95 @@
   // ПИТАНИЕ — карточка «Вчера» + серии в норме
   // ============================================================
   // Возвращает 'good' | 'warn' | 'bad' по отклонению от цели в %.
+  // Норма: ±7 % — good, ±15 % — warn, дальше — bad.
   function nutritionStatus(value, goal) {
     const v = num(value), g = num(goal);
     if (!isFinite(v) || !isFinite(g) || g <= 0) return null;
     const delta = Math.abs(v - g) / g * 100;
-    if (delta <= 10) return "good";
-    if (delta <= 20) return "warn";
+    if (delta <= 7) return "good";
+    if (delta <= 15) return "warn";
     return "bad";
   }
 
-  // Сколько подряд дней значение в коридоре ±15 % от цели (с конца истории).
+  // Сколько подряд дней значение в коридоре ±7 % от цели (с конца истории).
   function nutritionStreak(rows, key, goal) {
     if (!isFinite(num(goal)) || num(goal) <= 0) return null;
     const g = num(goal);
     let count = 0;
     for (let i = rows.length - 1; i >= 0; i--) {
-      const v = num(rows[i][key]);
+      const v = num(getFsField(rows[i], key));
       if (!isFinite(v)) break;
-      if (Math.abs(v - g) / g * 100 <= 15) count++;
+      if (Math.abs(v - g) / g * 100 <= 7) count++;
       else break;
     }
     return count;
   }
 
+  // Универсальный геттер FS-полей — на случай если в Sheets шапка
+  // другая (kcal вместо calories_kcal и т.п.).
+  function getFsField(row, key) {
+    if (!row) return undefined;
+    const aliases = {
+      calories_kcal: ["calories_kcal", "kcal", "calories", "ккал"],
+      protein_g:     ["protein_g", "protein", "белок", "белки"],
+      fat_g:         ["fat_g", "fat", "жиры", "жир"],
+      carbs_g:       ["carbs_g", "carbs", "carb", "углеводы", "угл"],
+      fiber_g:       ["fiber_g", "fiber", "клетчатка"],
+      entries_count: ["entries_count", "entries", "записей"],
+    };
+    for (const k of (aliases[key] || [key])) {
+      if (row[k] !== undefined && row[k] !== "") return row[k];
+    }
+    return undefined;
+  }
+
   function renderNutrition(latestFS, goal) {
-    const grid = document.getElementById("nutrition-grid");
-    if (!grid) return;
+    const block = document.getElementById("nutrition-block");
+    if (!block) return;
     if (!latestFS) {
-      grid.innerHTML = '<div class="empty" style="grid-column:span 2;color:var(--text-muted);font-size:13px;text-align:center;padding:14px 0">Нет данных за вчера</div>';
+      block.innerHTML = '<div class="nutri-empty">Нет данных за вчера</div>';
       return;
     }
-    const sub = (val, target, unit) => {
-      if (!isFinite(num(target)) || num(target) <= 0) return "";
-      const pct = Math.round((num(val) - num(target)) / num(target) * 100);
+    const kcal    = num(getFsField(latestFS, "calories_kcal"));
+    const protein = num(getFsField(latestFS, "protein_g"));
+    const fat     = num(getFsField(latestFS, "fat_g"));
+    const carbs   = num(getFsField(latestFS, "carbs_g"));
+
+    const vsPct = (val, target) => {
+      if (!isFinite(num(target)) || num(target) <= 0 || !isFinite(val)) return "";
+      const pct = Math.round((val - num(target)) / num(target) * 100);
       const sign = pct >= 0 ? "+" : "";
-      return `vs цель ${sign}${pct}%`;
+      return `${sign}${pct}%`;
     };
-    grid.innerHTML = [
-      metricCard({
-        label: "Калории", value: formatNumber(latestFS.calories_kcal), unit: "ккал",
-        sub: goal ? sub(latestFS.calories_kcal, goal.kcal) : `за день · ${latestFS.entries_count || 0} зап.`,
-        accent: "kcal", wide: true,
-        status: goal ? nutritionStatus(latestFS.calories_kcal, goal.kcal) : null,
-      }),
-      metricCard({
-        label: "Белок", value: latestFS.protein_g, unit: "г",
-        sub: goal ? sub(latestFS.protein_g, goal.protein_g) : "",
-        accent: "protein",
-        status: goal ? nutritionStatus(latestFS.protein_g, goal.protein_g) : null,
-      }),
-      metricCard({
-        label: "Жиры", value: latestFS.fat_g, unit: "г",
-        sub: goal ? sub(latestFS.fat_g, goal.fat_g) : "",
-        accent: "fat",
-        status: goal ? nutritionStatus(latestFS.fat_g, goal.fat_g) : null,
-      }),
-      metricCard({
-        label: "Углеводы", value: latestFS.carbs_g, unit: "г",
-        sub: goal ? sub(latestFS.carbs_g, goal.carbs_g) : "",
-        accent: "carbs",
-        status: goal ? nutritionStatus(latestFS.carbs_g, goal.carbs_g) : null,
-      }),
-    ].join("");
+    const fmt = (v) => isFinite(v) ? Math.round(v).toLocaleString("ru-RU") : "—";
+
+    const kcalStatus    = goal ? (nutritionStatus(kcal, goal.kcal) || "")       : "";
+    const proteinStatus = goal ? (nutritionStatus(protein, goal.protein_g) || "") : "";
+    const fatStatus     = goal ? (nutritionStatus(fat, goal.fat_g) || "")       : "";
+    const carbsStatus   = goal ? (nutritionStatus(carbs, goal.carbs_g) || "")   : "";
+
+    block.innerHTML = `
+      <div class="nutri-line">
+        <span class="nutri-kcal-value ${kcalStatus ? "status-" + kcalStatus : ""}">${fmt(kcal)}</span>
+        <span class="nutri-kcal-unit">ккал</span>
+        ${goal ? `<span class="nutri-kcal-vs">vs цель ${vsPct(kcal, goal.kcal)}</span>` : ""}
+      </div>
+      <div class="nutri-macros">
+        <span class="nutri-macro ${proteinStatus ? "status-" + proteinStatus : ""}"><b>Б</b>${fmt(protein)}${goal ? ` <span style="color:var(--text-muted);font-weight:400">(${vsPct(protein, goal.protein_g)})</span>` : ""}</span>
+        <span class="nutri-macro ${fatStatus     ? "status-" + fatStatus     : ""}"><b>Ж</b>${fmt(fat)}${    goal ? ` <span style="color:var(--text-muted);font-weight:400">(${vsPct(fat,     goal.fat_g)})</span>`     : ""}</span>
+        <span class="nutri-macro ${carbsStatus   ? "status-" + carbsStatus   : ""}"><b>У</b>${fmt(carbs)}${  goal ? ` <span style="color:var(--text-muted);font-weight:400">(${vsPct(carbs,   goal.carbs_g)})</span>`   : ""}</span>
+      </div>`;
   }
 
   function renderNutritionStreaks(fsRows, goal) {
     const wrap = document.getElementById("nutri-streaks-wrap");
     if (!wrap) return;
-    if (!goal) {
-      wrap.innerHTML = '<div class="nutri-no-goal">Цель КБЖУ не задана. В Telegram-боте: <b>/goal kcal=1800 protein=120 fat=60 carbs=180</b></div>';
-      return;
-    }
     if (!fsRows.length) {
       wrap.innerHTML = '<div class="nutri-no-goal">Нет истории по питанию</div>';
+      return;
+    }
+    if (!goal) {
+      wrap.innerHTML = '<div class="nutri-no-goal">Цель КБЖУ не задана. В Telegram-боте: <b>/goal kcal=2190 protein=190 fat=70 carbs=200</b></div>';
       return;
     }
     const items = [
@@ -1418,17 +1493,20 @@
       { key: "fat_g",         target: goal.fat_g,     label: "жиры" },
       { key: "carbs_g",       target: goal.carbs_g,   label: "угл" },
     ];
-    wrap.innerHTML = '<div class="nutri-streaks">' + items.map((it) => {
-      const c = nutritionStreak(fsRows, it.key, it.target);
-      const cls = (c === null || c === 0) ? "nutri-streak zero" : "nutri-streak";
-      const value = c === null ? "—" : c;
-      return `
-        <div class="${cls}">
-          <span class="nutri-streak-label">${it.label}</span>
-          <span class="nutri-streak-count">${value}</span>
-          <span class="nutri-streak-unit">дн. в норме</span>
-        </div>`;
-    }).join("") + '</div>';
+    const goalLine = `Цель: ${goal.kcal} ккал · Б ${goal.protein_g} · Ж ${goal.fat_g} · У ${goal.carbs_g}`;
+    wrap.innerHTML =
+      `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${goalLine}</div>` +
+      '<div class="nutri-streaks">' + items.map((it) => {
+        const c = nutritionStreak(fsRows, it.key, it.target);
+        const cls = (c === null || c === 0) ? "nutri-streak zero" : "nutri-streak";
+        const value = c === null ? "—" : c;
+        return `
+          <div class="${cls}">
+            <span class="nutri-streak-label">${it.label}</span>
+            <span class="nutri-streak-count">${value}</span>
+            <span class="nutri-streak-unit">дн. в норме</span>
+          </div>`;
+      }).join("") + '</div>';
   }
 
   // ============================================================
@@ -1655,7 +1733,21 @@
     goalsRows.sort((a, b) => (a.date_set || "").localeCompare(b.date_set || ""));
     const latest = garminRows[garminRows.length - 1];
     const latestFS = fsRows[fsRows.length - 1] || null;
-    const latestGoal = goalsRows[goalsRows.length - 1] || null;
+    // Если в Sheets nutrition_goals пуст — используем дефолтную цель из CONFIG.
+    // После того как ты выставишь /goal в боте — Sheets перебьёт дефолт.
+    let latestGoal = goalsRows[goalsRows.length - 1] || null;
+    if (latestGoal) {
+      latestGoal = {
+        date_set: latestGoal.date_set,
+        kcal:      num(latestGoal.kcal),
+        protein_g: num(latestGoal.protein_g),
+        fat_g:     num(latestGoal.fat_g),
+        carbs_g:   num(latestGoal.carbs_g),
+        source:    latestGoal.source,
+      };
+    } else if (CONFIG.DEFAULT_GOAL) {
+      latestGoal = { ...CONFIG.DEFAULT_GOAL, source: "dashboard_default" };
+    }
 
     renderToday(latest);
     renderTrends(garminRows);

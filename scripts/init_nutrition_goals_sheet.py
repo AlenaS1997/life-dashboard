@@ -34,6 +34,7 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import sys
@@ -54,6 +55,14 @@ HEADERS = ["date_set", "kcal", "protein_g", "fat_g", "carbs_g", "source"]
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--kcal",    type=float, help="Целевые калории (ккал)")
+    parser.add_argument("--protein", type=float, help="Целевой белок (г)")
+    parser.add_argument("--fat",     type=float, help="Целевые жиры (г)")
+    parser.add_argument("--carbs",   type=float, help="Целевые углеводы (г)")
+    parser.add_argument("--source",  default="manual", help="Источник записи (default: manual)")
+    args = parser.parse_args()
+
     try:
         from dotenv import load_dotenv
         load_dotenv(ENV_PATH)
@@ -101,25 +110,43 @@ def main() -> int:
         ws.append_row(HEADERS)
         log.info(f"Вкладка создана с заголовками: {HEADERS}")
 
-    # Если в .env есть стартовая цель — запишем её, если в листе ещё нет данных.
-    starter_kcal = os.getenv("NUTRITION_GOAL_KCAL")
-    if starter_kcal and len(ws.col_values(1)) <= 1:
+    # Цель можно задать тремя способами (приоритет сверху вниз):
+    #   1. CLI аргументы --kcal/--protein/--fat/--carbs (самый удобный)
+    #   2. .env переменные NUTRITION_GOAL_KCAL и т.д.
+    #   3. Не задавать — потом /goal в Telegram-боте.
+    cli_goal = args.kcal is not None
+    env_goal = os.getenv("NUTRITION_GOAL_KCAL")
+
+    if cli_goal:
         row = [
             date.today().isoformat(),
-            float(starter_kcal),
+            float(args.kcal),
+            float(args.protein or 0),
+            float(args.fat or 0),
+            float(args.carbs or 0),
+            args.source,
+        ]
+        ws.append_row(row, value_input_option="USER_ENTERED")
+        log.info(f"✅ Цель из CLI записана: {row}")
+    elif env_goal and len(ws.col_values(1)) <= 1:
+        row = [
+            date.today().isoformat(),
+            float(env_goal),
             float(os.getenv("NUTRITION_GOAL_PROTEIN_G") or 0),
             float(os.getenv("NUTRITION_GOAL_FAT_G") or 0),
             float(os.getenv("NUTRITION_GOAL_CARBS_G") or 0),
             "init_script",
         ]
-        ws.append_row(row)
-        log.info(f"Записал стартовую цель из .env: {row}")
-    elif starter_kcal:
-        log.info("В листе уже есть данные — стартовую цель из .env не добавляю.")
+        ws.append_row(row, value_input_option="USER_ENTERED")
+        log.info(f"✅ Цель из .env записана: {row}")
+    elif env_goal:
+        log.info("В листе уже есть данные — цель из .env не добавляю.")
     else:
         log.info(
-            "NUTRITION_GOAL_KCAL не задан в .env — лист создан пустым. "
-            "Задай цель командой /goal в Telegram-боте."
+            "Цель не задана. Лист создан/обновлён. "
+            "Чтобы записать цель прямо сейчас, перезапусти с аргументами:\n"
+            "  python3.11 scripts/init_nutrition_goals_sheet.py "
+            "--kcal 2190 --protein 190 --fat 70 --carbs 200"
         )
 
     log.info("Готово.")
