@@ -219,11 +219,21 @@
     }
     .ghost-btn:hover { color: var(--text); border-color: #444; }
 
-    /* Heatmap сна — компактный, с числом часов внутри.
+    /* Heatmap сна — календарная сетка 7 колонок (пн..вс).
        Цвет по правилу: ≥8 ч — зелёный, 7..8 — жёлтый, <7 — красный. */
+    .heatmap-week-head {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+      margin-bottom: 4px;
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: center;
+      letter-spacing: 0.04em;
+    }
     .heatmap {
       display: grid;
-      grid-template-columns: repeat(10, 1fr);
+      grid-template-columns: repeat(7, 1fr);
       gap: 3px;
     }
     .heat-cell {
@@ -928,6 +938,9 @@
 
     <section>
       <h2>Сон · <span id="heatmap-period-label">14 дней</span></h2>
+      <div class="heatmap-week-head">
+        <span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span>
+      </div>
       <div class="heatmap" id="heatmap"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:14px;flex-wrap:wrap">
         <div class="heat-legend" style="justify-content:flex-start;gap:14px;margin:0">
@@ -1412,7 +1425,7 @@
     });
   }
 
-  // Heatmap сна. По умолчанию 14 дней, по тоглу — 30.
+  // Heatmap сна — календарная сетка 7 колонок (пн..вс). По тоглу 14 ↔ 30 дней.
   // Цвет: ≥8 ч зелёный, 7-8 жёлтый, <7 красный.
   let HEATMAP_DAYS = 14;
   function renderHeatmap(rows) {
@@ -1425,8 +1438,19 @@
       el.innerHTML = '<div class="empty" style="grid-column:span 7">Нет истории сна</div>';
       return;
     }
-    // Рисуем ровно HEATMAP_DAYS ячеек (если данных меньше — слева пустые).
-    const filled = new Array(HEATMAP_DAYS - lastN.length).fill(null).concat(lastN);
+    // Календарное выравнивание: считаем, на каком weekday (0=пн..6=вс)
+    // находится первая дата, и добавляем слева пустые до начала недели.
+    // Аналогично — справа добавляем до конца строки (кратно 7).
+    const firstDateStr = lastN[0].date;
+    let leftPad = 0;
+    try {
+      const d = new Date(firstDateStr);
+      // JS getDay: 0=вс, 1=пн, ..., 6=сб. Нужно (0..6), где 0=пн, 6=вс.
+      leftPad = (d.getDay() + 6) % 7;
+    } catch {}
+    const filledLeft = new Array(leftPad).fill(null).concat(lastN);
+    const rightPad = (7 - filledLeft.length % 7) % 7;
+    const filled = filledLeft.concat(new Array(rightPad).fill(null));
     el.innerHTML = filled.map((r) => {
       if (!r) return '<div class="heat-cell empty" title="нет данных"></div>';
       const h = num(r.sleep_hours);
