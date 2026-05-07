@@ -20,15 +20,13 @@ FROM n8nio/n8n:latest
 
 USER root
 
-# Создаём целевую директорию и выдаём права пользователю node (uid 1000),
-# под которым работает n8n. Делаем это в entrypoint, потому что Volume
-# монтируется только на runtime, а не на build time.
-RUN echo '#!/bin/sh' > /usr/local/bin/fix-perms-and-start.sh && \
-    echo 'set -e' >> /usr/local/bin/fix-perms-and-start.sh && \
-    echo 'mkdir -p "${N8N_USER_FOLDER:-/home/node/.n8n}"' >> /usr/local/bin/fix-perms-and-start.sh && \
-    echo 'chown -R node:node "${N8N_USER_FOLDER:-/home/node/.n8n}"' >> /usr/local/bin/fix-perms-and-start.sh && \
-    echo 'exec su-exec node n8n "$@"' >> /usr/local/bin/fix-perms-and-start.sh && \
+# n8n image alpine-based, su-exec нужен для запуска n8n под пользователем node
+# после того как мы (под root) сделали chown на Volume.
+RUN apk add --no-cache su-exec
+
+# Создаём entrypoint-скрипт. Делаем это в build time (а не в runtime),
+# потому что Volume монтируется только при старте контейнера.
+RUN printf '#!/bin/sh\nset -e\nmkdir -p "${N8N_USER_FOLDER:-/home/node/.n8n}"\nchown -R node:node "${N8N_USER_FOLDER:-/home/node/.n8n}"\nexec su-exec node n8n "$@"\n' > /usr/local/bin/fix-perms-and-start.sh && \
     chmod +x /usr/local/bin/fix-perms-and-start.sh
 
-# n8nio/n8n alpine-based — в нём уже есть su-exec.
 ENTRYPOINT ["/usr/local/bin/fix-perms-and-start.sh"]
