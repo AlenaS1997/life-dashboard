@@ -6,8 +6,10 @@
         "rule": {
           "interval": [
             {
-              "field": "cronExpression",
-              "expression": "0 6 * * *"
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
             }
           ]
         }
@@ -17,7 +19,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
       "position": [240, 300],
-      "notes": "Cron в UTC: 06:00 = 09:00 МСК. После всех остальных дайджестов, чтобы не сливаться в кучу."
+      "notes": "Запуск 09:00 в timezone из settings (Europe/Moscow). Режим 'days at HH:MM' уважает workflow timezone, в отличие от cronExpression. После остальных дайджестов, чтобы не сливаться в кучу."
     },
     {
       "parameters": {

@@ -199,6 +199,21 @@ def _extract_body_battery(bb_raw: list | None) -> tuple[int, int]:
     return int(day.get("charged") or 0), int(day.get("drained") or 0)
 
 
+def _ms_to_hhmm_msk(ms: int | None) -> str:
+    """UNIX-миллисекунды → строка 'HH:MM' в МСК (+03:00).
+    Возвращает пустую строку, если значения нет.
+    """
+    if not ms:
+        return ""
+    try:
+        from datetime import datetime, timezone, timedelta
+        dt_utc = datetime.fromtimestamp(int(ms) / 1000, tz=timezone.utc)
+        dt_msk = dt_utc.astimezone(timezone(timedelta(hours=3)))
+        return dt_msk.strftime("%H:%M")
+    except Exception:
+        return ""
+
+
 def fetch_garmin_data(client: garminconnect.Garmin, target_date: str) -> dict:
     """Метрики за указанную дату. Мягко переживает отсутствие отдельных фидов."""
     log.info(f"Забираю данные за {target_date}...")
@@ -214,6 +229,15 @@ def fetch_garmin_data(client: garminconnect.Garmin, target_date: str) -> dict:
     bb_raw = _safe_call(client.get_body_battery, target_date, default=[], label="BodyBattery")
     bb_max, bb_min = _extract_body_battery(bb_raw)
 
+    # Фазы сна (в минутах) и время отбоя/подъёма (HH:MM в МСК).
+    # dto.sleepStartTimestampLocal/GMT приходит в UNIX-миллисекундах.
+    deep_min  = round((dto.get("deepSleepSeconds")  or 0) / 60)
+    light_min = round((dto.get("lightSleepSeconds") or 0) / 60)
+    rem_min   = round((dto.get("remSleepSeconds")   or 0) / 60)
+    awake_min = round((dto.get("awakeSleepSeconds") or 0) / 60)
+    bedtime   = _ms_to_hhmm_msk(dto.get("sleepStartTimestampGMT"))
+    wakeup    = _ms_to_hhmm_msk(dto.get("sleepEndTimestampGMT"))
+
     return {
         "date": target_date,
         "sleep_hours": round((dto.get("sleepTimeSeconds") or 0) / 3600, 2),
@@ -223,10 +247,17 @@ def fetch_garmin_data(client: garminconnect.Garmin, target_date: str) -> dict:
         "hrv_last_night": hrv_val,
         "steps": stats.get("totalSteps") or 0,
         "stress_avg": stats.get("averageStressLevel") or 0,
+        "deep_sleep_min":  deep_min,
+        "light_sleep_min": light_min,
+        "rem_sleep_min":   rem_min,
+        "awake_sleep_min": awake_min,
+        "bedtime":         bedtime,
+        "wakeup":          wakeup,
     }
 
 
-# Заголовки по умолчанию, если вкладка пустая (порядок = как будет записан в первой строке)
+# Заголовки по умолчанию, если вкладка пустая (порядок = как будет записан в первой строке).
+# При расширении уже существующей вкладки новые поля допишутся автоматически в write_to_sheet.
 DEFAULT_HEADERS = [
     "date",
     "sleep_hours",
@@ -236,6 +267,12 @@ DEFAULT_HEADERS = [
     "hrv_last_night",
     "steps",
     "stress_avg",
+    "deep_sleep_min",
+    "light_sleep_min",
+    "rem_sleep_min",
+    "awake_sleep_min",
+    "bedtime",
+    "wakeup",
 ]
 
 
@@ -266,13 +303,22 @@ def write_to_sheet(data: dict, sheet_id: str, worksheet_name: str, sa_path: str)
         ws.append_row(DEFAULT_HEADERS)
         existing_headers = DEFAULT_HEADERS
 
-    # Предупреждаем, если в данных есть ключи, которых нет в заголовках (потеряем) или наоборот
-    missing_in_data = [h for h in existing_headers if h not in data]
-    extra_in_data = [k for k in data if k not in existing_headers]
-    if missing_in_data:
-        log.warning(f"Заголовки без значений (будут пустыми): {missing_in_data}")
+    # Если в data появились новые поля (например, добавили фазы сна),
+    # которых ещё нет в шапке — дописываем недостающие заголовки в конец
+    # первой строки. Так не теряем новые метрики после расширения схемы.
+    new_keys = [k for k in DEFAULT_HEADERS if k in data and k not in existing_headers]
+    extra_in_data = [k for k in data if k not in DEFAULT_HEADERS and k not in existing_headers]
+    if new_keys:
+        log.info(f"Расширяю шапку — добавляю новые столбцы: {new_keys}")
+        updated_headers = existing_headers + new_keys
+        # Обновляем первую строку целиком, чтобы расширить колонки
+        ws.update("A1", [updated_headers])
+        existing_headers = updated_headers
     if extra_in_data:
         log.warning(f"Данные без заголовков в таблице (не запишутся): {extra_in_data}")
+    missing_in_data = [h for h in existing_headers if h not in data]
+    if missing_in_data:
+        log.warning(f"Заголовки без значений (будут пустыми): {missing_in_data}")
 
     # Идемпотентность: если дата уже записана — не дублируем
     all_dates = ws.col_values(1)
@@ -288,8 +334,13 @@ def write_to_sheet(data: dict, sheet_id: str, worksheet_name: str, sa_path: str)
 def main() -> int:
     parser = argparse.ArgumentParser(description="Garmin → Google Sheets sync")
     parser.add_argument("--dry-run", action="store_true", help="Не писать в Sheets")
-    parser.add_argument("--date", help="Дата YYYY-MM-DD (по умолчанию — вчера)")
+    parser.add_argument("--date", help="Дата YYYY-MM-DD (по умолчанию — вчера). С --days это последняя дата диапазона.")
+    parser.add_argument("--days", type=int, default=1, help="Сколько дней подряд бэкфилить, заканчивая --date (по умолчанию 1).")
     args = parser.parse_args()
+
+    if args.days < 1:
+        log.error("--days должен быть >= 1")
+        return 1
 
     email = os.getenv("GARMIN_EMAIL")
     password = os.getenv("GARMIN_PASSWORD")
@@ -306,24 +357,47 @@ def main() -> int:
         log.error(f"Service account JSON не найден: {sa_abs}")
         return 1
 
-    target_date = args.date or (date.today() - timedelta(days=1)).isoformat()
-    log.info(f"=== Garmin sync: {target_date} ===")
+    end_date_str = args.date or (date.today() - timedelta(days=1)).isoformat()
+    end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    dates = [(end_date - timedelta(days=offset)).isoformat() for offset in range(args.days - 1, -1, -1)]
+
+    if args.days > 1:
+        log.info(f"=== Garmin sync: бэкфилл {args.days} дней: {dates[0]} … {dates[-1]} ===")
+    else:
+        log.info(f"=== Garmin sync: {dates[0]} ===")
 
     try:
         client = login_with_backoff(email, password)
-        data = fetch_garmin_data(client, target_date)
-        log.info(
-            f"Сон: {data['sleep_hours']}ч, Score: {data['sleep_score']}, "
-            f"HRV: {data['hrv_last_night']}, Шаги: {data['steps']}, "
-            f"Стресс: {data['stress_avg']}, BB: {data['body_battery_max']}/{data['body_battery_min']}"
-        )
+        ok, failed = 0, []
+        for i, target_date in enumerate(dates, 1):
+            if args.days > 1:
+                log.info("─" * 60)
+                log.info(f"[{i}/{len(dates)}] {target_date}")
+            try:
+                data = fetch_garmin_data(client, target_date)
+                log.info(
+                    f"Сон: {data['sleep_hours']}ч (deep {data['deep_sleep_min']}/light {data['light_sleep_min']}/rem {data['rem_sleep_min']}/awake {data['awake_sleep_min']} мин), "
+                    f"отбой {data['bedtime'] or '—'} → подъём {data['wakeup'] or '—'}, "
+                    f"score {data['sleep_score']}, HRV {data['hrv_last_night']}, "
+                    f"шаги {data['steps']}, стресс {data['stress_avg']}, BB {data['body_battery_max']}/{data['body_battery_min']}"
+                )
 
-        if args.dry_run:
-            log.info("DRY RUN — в Sheets не пишем.")
-        else:
-            write_to_sheet(data, sheet_id, worksheet, str(sa_abs))
+                if args.dry_run:
+                    log.info("DRY RUN — в Sheets не пишем.")
+                else:
+                    write_to_sheet(data, sheet_id, worksheet, str(sa_abs))
+                ok += 1
+            except Exception as e:
+                log.exception(f"Ошибка на дате {target_date}: {e}")
+                failed.append(target_date)
+            # Небольшая пауза, чтобы не нагружать Garmin API.
+            if i < len(dates):
+                time.sleep(1.5)
 
-        log.info("ГОТОВО!")
+        if failed:
+            log.warning(f"Готово с ошибками. Успешно: {ok}/{len(dates)}. Не удалось: {failed}")
+            return 2
+        log.info(f"ГОТОВО! Обработано дней: {ok}/{len(dates)}.")
         return 0
     except Exception as e:
         log.error(f"Ошибка: {e}", exc_info=True)

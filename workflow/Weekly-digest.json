@@ -1,5 +1,5 @@
 {
-  "name": "Life Dashboard — Weekly Digest (Sunday)",
+  "name": "Weekly-digest",
   "nodes": [
     {
       "parameters": {
@@ -7,20 +7,20 @@
           "interval": [
             {
               "field": "weeks",
-              "weeksInterval": 1,
-              "triggerAtDay": [0],
-              "triggerAtHour": 19,
-              "triggerAtMinute": 0
+              "triggerAtHour": 19
             }
           ]
         }
       },
-      "id": "trigger-cron",
+      "id": "27f0b157-d525-442d-bd6f-54d57ff9e3f2",
       "name": "Каждое воскресенье 19:00 МСК",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [240, 300],
-      "notes": "Запуск ВС 19:00 в timezone из settings (Europe/Moscow). Режим 'weeks at HH:MM' вместо cronExpression: cron-mode не уважает workflow timezone в нашем инстансе, а weeks-mode уважает. triggerAtDay=[0] — воскресенье (n8n: 0=Sunday)."
+      "position": [
+        -448,
+        112
+      ],
+      "notes": "Cron в UTC: 16:00 ВС = 19:00 МСК ВС. Воскресный итог недели."
     },
     {
       "parameters": {
@@ -47,7 +47,7 @@
             {
               "id": "chat-id",
               "name": "telegram_chat_id",
-              "value": "REPLACE_ME_WITH_YOUR_CHAT_ID",
+              "value": "264374209",
               "type": "string"
             },
             {
@@ -60,11 +60,14 @@
         },
         "options": {}
       },
-      "id": "config",
+      "id": "7a30e7e8-e7c3-4e90-a0c6-699b6ae0932b",
       "name": "Конфиг",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [460, 300]
+      "position": [
+        -224,
+        112
+      ]
     },
     {
       "parameters": {
@@ -77,11 +80,14 @@
           }
         }
       },
-      "id": "fetch-garmin",
+      "id": "9067e455-c4dd-4b4f-9464-554cfa188811",
       "name": "Тянем Garmin CSV (история)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 200],
+      "position": [
+        0,
+        0
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
@@ -97,11 +103,14 @@
           }
         }
       },
-      "id": "fetch-events",
+      "id": "57f082d2-d749-42b7-9f1f-b0fc76ce2a33",
       "name": "Тянем события из Sheets",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 400],
+      "position": [
+        0,
+        208
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
@@ -112,11 +121,14 @@
       "parameters": {
         "jsCode": "// =====================================================================\n// Аналитика для воскресного итога недели.\n// События читаем из gcal_events (туда пишет gcal-sync).\n// =====================================================================\n\nconst garminCsv = $('Тянем Garmin CSV (история)').item.json.data || $('Тянем Garmin CSV (история)').item.json;\n\nlet eventsCsv = '';\ntry {\n  eventsCsv = $('Тянем события из Sheets').item.json.data || $('Тянем события из Sheets').item.json || '';\n} catch (e) { eventsCsv = ''; }\n\nfunction parseCsv(raw) {\n  if (typeof raw !== 'string') raw = String(raw);\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\nconst rows = parseCsv(garminCsv).filter(r=>r.date).sort((a,b)=>(a.date||'').localeCompare(b.date||''));\nconst eventRows = parseCsv(eventsCsv);\n\nconst num = (v) => {\n  if (v == null || v === '') return NaN;\n  if (typeof v === 'number') return v;\n  const cleaned = String(v).replace(/[\\s\\u00A0]/g,'').replace(',','.');\n  const n = parseFloat(cleaned);\n  return isFinite(n) ? n : NaN;\n};\nconst avg = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  if (!ys.length) return null;\n  return ys.reduce((a,b)=>a+b,0)/ys.length;\n};\nconst round = (v, d=1) => v == null ? null : Number(v.toFixed(d));\nconst minOf = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  return ys.length ? Math.min(...ys) : null;\n};\nconst maxOf = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  return ys.length ? Math.max(...ys) : null;\n};\n\nconst last7  = rows.slice(-7);\nconst prev7  = rows.slice(-14, -7);\nconst last14 = rows.slice(-14);\nconst last30 = rows.slice(-30);\n\nconst metricKeys = ['sleep_hours','sleep_score','hrv_last_night','steps','stress_avg','body_battery_min','body_battery_max'];\nconst lowerIsBetter = { stress_avg: true };\n\nconst trends = {};\nfor (const k of metricKeys) {\n  const a7 = avg(last7.map(r=>r[k]));\n  const a14 = avg(last14.map(r=>r[k]));\n  const a30 = avg(last30.map(r=>r[k]));\n  const aPrev7 = avg(prev7.map(r=>r[k]));\n  const min7 = minOf(last7.map(r=>r[k]));\n  const max7 = maxOf(last7.map(r=>r[k]));\n  const decimals = (k === 'sleep_hours') ? 1 : 0;\n  trends[k] = {\n    avg_7d: round(a7, decimals),\n    avg_14d: round(a14, decimals),\n    avg_30d: round(a30, decimals),\n    min_7d: round(min7, decimals),\n    max_7d: round(max7, decimals),\n    delta_vs_prev_week_pct: (a7 != null && aPrev7 != null && aPrev7 !== 0)\n      ? Math.round((a7 - aPrev7) / Math.abs(aPrev7) * 100) : null,\n    delta_7d_vs_30d_pct: (a7 != null && a30 != null && a30 !== 0)\n      ? Math.round((a7 - a30) / Math.abs(a30) * 100) : null,\n  };\n}\n\nfunction streakWorseThanBaseline(rows, key, baseline, lowerIsBetterFlag) {\n  if (baseline == null) return 0;\n  let count = 0;\n  for (let i = rows.length - 1; i >= 0; i--) {\n    const v = num(rows[i][key]);\n    if (!isFinite(v)) break;\n    const worse = lowerIsBetterFlag ? (v > baseline) : (v < baseline);\n    if (worse) count++; else break;\n  }\n  return count;\n}\nconst streaks = {};\nfor (const k of metricKeys) {\n  streaks[k] = streakWorseThanBaseline(rows, k, trends[k].avg_30d, !!lowerIsBetter[k]);\n}\n\n// События по дням\nconst eventsByDay = {};\nfor (const e of eventRows) {\n  const startIso = e.start_time || e.date || '';\n  const day = (startIso.match(/^(\\d{4}-\\d{2}-\\d{2})/) || [])[1] || '';\n  if (!day) continue;\n  const timeMatch = startIso.match(/T(\\d{2}):(\\d{2})/);\n  const hour = timeMatch ? parseInt(timeMatch[1], 10) : null;\n  (eventsByDay[day] ||= []).push({\n    title: e.event_title || '',\n    hour,\n    is_evening: hour != null && hour >= 18,\n    is_late: hour != null && hour >= 21,\n  });\n}\n\nconst dailyContext = last14.map(r => {\n  const d = r.date;\n  const evs = eventsByDay[d] || [];\n  return {\n    date: d,\n    weekday: d ? new Date(d).toLocaleDateString('ru-RU', { weekday: 'short' }) : '',\n    sleep_hours: round(num(r.sleep_hours), 1),\n    sleep_score: num(r.sleep_score) || null,\n    hrv: num(r.hrv_last_night) || null,\n    stress: num(r.stress_avg) || null,\n    steps: num(r.steps) || null,\n    body_battery_min: num(r.body_battery_min) || null,\n    events_total: evs.length,\n    events_evening: evs.filter(e => e.is_evening).length,\n    events_late: evs.filter(e => e.is_late).length,\n  };\n});\n\nfunction dayScore(d) {\n  const sleepScore = d.sleep_score || 0;\n  const hrv = d.hrv || 0;\n  const stress = d.stress || 50;\n  const bb = d.body_battery_min || 0;\n  return (sleepScore / 100) * 0.35\n       + (Math.min(hrv, 70) / 70) * 0.30\n       + (1 - (stress / 100)) * 0.20\n       + (bb / 100) * 0.15;\n}\nconst weekDays = dailyContext.slice(-7).filter(d => d.sleep_score != null);\nlet bestDay = null, worstDay = null;\nif (weekDays.length) {\n  const scored = weekDays.map(d => ({ ...d, score: dayScore(d) }));\n  scored.sort((a, b) => b.score - a.score);\n  bestDay = { date: scored[0].date, weekday: scored[0].weekday, score: round(scored[0].score, 2),\n              sleep_hours: scored[0].sleep_hours, sleep_score: scored[0].sleep_score,\n              hrv: scored[0].hrv, stress: scored[0].stress, events_total: scored[0].events_total,\n              events_evening: scored[0].events_evening };\n  worstDay = { date: scored[scored.length-1].date, weekday: scored[scored.length-1].weekday,\n               score: round(scored[scored.length-1].score, 2),\n               sleep_hours: scored[scored.length-1].sleep_hours,\n               sleep_score: scored[scored.length-1].sleep_score,\n               hrv: scored[scored.length-1].hrv, stress: scored[scored.length-1].stress,\n               events_total: scored[scored.length-1].events_total,\n               events_evening: scored[scored.length-1].events_evening };\n}\n\nconst eventsWeekRows = dailyContext.slice(-7);\nconst eventsPrevWeekRows = dailyContext.slice(-14, -7);\nconst sumField = (rows, k) => rows.reduce((a, r) => a + (r[k] || 0), 0);\nconst events_summary = {\n  this_week: {\n    total: sumField(eventsWeekRows, 'events_total'),\n    evening: sumField(eventsWeekRows, 'events_evening'),\n    late: sumField(eventsWeekRows, 'events_late'),\n    days_with_late: eventsWeekRows.filter(r => (r.events_late || 0) > 0).length,\n  },\n  prev_week: {\n    total: sumField(eventsPrevWeekRows, 'events_total'),\n    evening: sumField(eventsPrevWeekRows, 'events_evening'),\n    late: sumField(eventsPrevWeekRows, 'events_late'),\n    days_with_late: eventsPrevWeekRows.filter(r => (r.events_late || 0) > 0).length,\n  },\n};\n\nconst payload = {\n  week_start: last7[0]?.date || null,\n  week_end: last7[last7.length - 1]?.date || null,\n  days_count: last7.length,\n  trends,\n  streaks,\n  daily_last_14: dailyContext,\n  best_day: bestDay,\n  worst_day: worstDay,\n  events_summary,\n  events_in_sheet_total: eventRows.length,\n  dashboard_url: $('Конфиг').item.json.dashboard_url,\n};\n\nreturn [{ json: payload }];"
       },
-      "id": "build-context",
+      "id": "81fb5dce-ae5a-433f-918e-f56266a9e266",
       "name": "Считаем тренды и связи (неделя)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [
+        224,
+        112
+      ]
     },
     {
       "parameters": {
@@ -139,23 +151,27 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1800,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery + календарь). По воскресеньям пишешь в Telegram итог прошедшей недели: что произошло, почему, тенденция, конкретный эксперимент на следующую неделю.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров.\\n\\nФормат ответа СТРОГО такой:\\n\\n📊 *Итоги недели* ({week_start}–{week_end})\\n\\n*Главное:* 1–2 строки самого важного, что произошло за неделю. Опирайся на сильные сдвиги (delta_vs_prev_week_pct >= 15 %, или streak'и >= 3 дней).\\n\\n*Что улучшилось:* 1–3 пункта с конкретными цифрами из trends. Сравнивай и с прошлой неделей (delta_vs_prev_week_pct), и с месячной базой (delta_7d_vs_30d_pct). Если улучшений нет — пропусти блок.\\n\\n*Что просело:* 1–2 пункта, мягко. С теми же цифрами. Если ничего сильно не просело — пропусти блок.\\n\\n*Сильный день:* {best_day.weekday} — sleep_hours, sleep_score, HRV, stress + кол-во встреч. Факты в строку.\\n\\n*Слабый день:* {worst_day.weekday} — то же самое, факты в строку.\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками и календарём. Опирайся на daily_last_14 и events_summary. Сравнивай эту неделю с предыдущей по нагрузке. Если связей не видно — пропусти блок.\\n\\n*Эксперимент на неделю:* ровно ОДНА строка с конкретным измеримым действием на основе подмеченной связи. Если связи не нашлось — пропусти блок.\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила:\\n— Округляй: сон до десятых, всё остальное до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % или delta_7d_vs_30d_pct >= 15 % — отметь как «сильный сдвиг».\\n— Связи строй ТОЛЬКО на данных из daily_last_14 и events_summary. Не выдумывай.\\n— Никаких советов из учебника. Только то, что следует из ТВОИХ данных.\\n— Если days_count < 4 — отвечай: '📊 *Итоги недели:* слишком мало данных (меньше 4 дней), продолжаем копить.' и заверши на этом.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без буллетов.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}"
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1800,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery + календарь). По воскресеньям пишешь в Telegram итог прошедшей недели: что произошло, почему, тенденция, конкретный эксперимент на следующую неделю.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров.\\n\\nФормат ответа СТРОГО такой:\\n\\n📊 *Итоги недели* ({week_start}–{week_end})\\n\\n*Главное:* 1–2 строки самого важного, что произошло за неделю. Опирайся на сильные сдвиги (delta_vs_prev_week_pct >= 15 %, или streak'и >= 3 дней).\\n\\n*Что улучшилось:* 1–3 пункта с конкретными цифрами из trends. Сравнивай и с прошлой неделей (delta_vs_prev_week_pct), и с месячной базой (delta_7d_vs_30d_pct). Если улучшений нет — пропусти блок.\\n\\n*Что просело:* 1–2 пункта, мягко. С теми же цифрами. Если ничего сильно не просело — пропусти блок.\\n\\n*Сильный день:* {best_day.weekday} — sleep_hours, sleep_score, HRV, stress + кол-во встреч. Факты в строку.\\n\\n*Слабый день:* {worst_day.weekday} — то же самое, факты в строку.\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками и календарём. Опирайся на daily_last_14 и events_summary. Сравнивай эту неделю с предыдущей по нагрузке. Если связей не видно — пропусти блок.\\n\\n*Эксперимент на неделю:* ровно ОДНА строка с конкретным измеримым действием на основе подмеченной связи. Если связи не нашлось — пропусти блок.\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила:\\n— Округляй: сон до десятых, всё остальное до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % или delta_7d_vs_30d_pct >= 15 % — отметь как «сильный сдвиг».\\n— Связи строй ТОЛЬКО на данных из daily_last_14 и events_summary. Не выдумывай.\\n— Никаких советов из учебника. Только то, что следует из ТВОИХ данных.\\n— Если days_count < 4 — отвечай: '📊 *Итоги недели:* слишком мало данных (меньше 4 дней), продолжаем копить.' и заверши на этом.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без буллетов.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}",
+        "options": {}
       },
-      "id": "claude",
+      "id": "9c1a8d38-ae2c-459c-9cf8-f8a71f7418b2",
       "name": "Claude: пишет недельный итог",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1120, 300],
+      "position": [
+        448,
+        112
+      ],
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 10000,
-      "continueOnFail": true,
+      "waitBetweenTries": 5000,
       "credentials": {
         "httpHeaderAuth": {
-          "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
+          "id": "07gFyVjTm2K0oX6V",
           "name": "Anthropic x-api-key"
         }
-      }
+      },
+      "continueOnFail": true
     },
     {
       "parameters": {
@@ -165,47 +181,107 @@
           "parse_mode": "Markdown"
         }
       },
-      "id": "telegram-send",
+      "id": "271e357f-389d-4b9a-9979-7a9df340254d",
       "name": "Отправить в Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1340, 300],
+      "position": [
+        672,
+        112
+      ],
+      "webhookId": "702ea96a-147d-4bde-9e58-2ea4a21c466d",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_WITH_TELEGRAM_CRED_ID",
+          "id": "7SDIZH0t1SUnfezT",
           "name": "Life Dashboard Bot"
         }
       }
     }
   ],
+  "pinData": {},
   "connections": {
     "Каждое воскресенье 19:00 МСК": {
-      "main": [[{ "node": "Конфиг", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Конфиг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Конфиг": {
       "main": [
         [
-          { "node": "Тянем Garmin CSV (история)", "type": "main", "index": 0 },
-          { "node": "Тянем события из Sheets", "type": "main", "index": 0 }
+          {
+            "node": "Тянем Garmin CSV (история)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Тянем события из Sheets",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Тянем Garmin CSV (история)": {
-      "main": [[{ "node": "Считаем тренды и связи (неделя)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Считаем тренды и связи (неделя)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Тянем события из Sheets": {
-      "main": [[{ "node": "Считаем тренды и связи (неделя)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Считаем тренды и связи (неделя)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Считаем тренды и связи (неделя)": {
-      "main": [[{ "node": "Claude: пишет недельный итог", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Claude: пишет недельный итог",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Claude: пишет недельный итог": {
-      "main": [[{ "node": "Отправить в Telegram", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Отправить в Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": true,
   "settings": {
     "executionOrder": "v1",
-    "timezone": "Europe/Moscow"
+    "binaryMode": "separate"
   },
-  "tags": ["life-dashboard", "telegram", "claude", "weekly"]
+  "versionId": "3c140541-8357-48bd-948e-d3319974b967",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "351931e00d6bbd6c8f33a66b091e072f1025e0d20dd2315e5d01a46f439fa1af"
+  },
+  "id": "LSbrfiazauojOLe8",
+  "tags": []
 }

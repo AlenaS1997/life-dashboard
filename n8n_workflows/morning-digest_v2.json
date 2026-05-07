@@ -1,0 +1,186 @@
+{
+  "name": "morning-digest v2 (с FS)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 5 * * *"
+            }
+          ]
+        }
+      },
+      "id": "16502d77-fe9a-4529-b637-b770141141ae",
+      "name": "Каждое утро 08:30 МСК",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-448, 112],
+      "notes": "Cron 30 5 * * * = 05:30 UTC = 08:30 МСК. Зависит от UTC, не от instance timezone."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "sheet-id",       "name": "sheet_id",         "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE", "type": "string"},
+            {"id": "garmin-tab",     "name": "garmin_tab",       "value": "garmin_daily",     "type": "string"},
+            {"id": "events-tab",     "name": "events_tab",       "value": "gcal_events",      "type": "string"},
+            {"id": "fatsecret-tab",  "name": "fatsecret_tab",    "value": "fatsecret_daily",  "type": "string"},
+            {"id": "goals-tab",      "name": "goals_tab",        "value": "nutrition_goals",  "type": "string"},
+            {"id": "chat-id",        "name": "telegram_chat_id", "value": "264374209",        "type": "string"},
+            {"id": "dashboard-url",  "name": "dashboard_url",    "value": "https://alenas1997.github.io/life-dashboard/", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "af84a5c5-d202-4b26-a153-93b243257328",
+      "name": "Конфиг",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-224, 112]
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $json.garmin_tab }}",
+        "options": {"response": {"response": {"responseFormat": "text"}}}
+      },
+      "id": "d4653305-594b-4012-9cf9-c4fc7ebd050c",
+      "name": "Тянем Garmin CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, -96],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $('Конфиг').item.json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $('Конфиг').item.json.events_tab }}",
+        "options": {"response": {"response": {"responseFormat": "text"}}}
+      },
+      "id": "62e867e3-80a7-4fb3-8372-f69798013cf1",
+      "name": "Тянем события",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 64],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $('Конфиг').item.json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $('Конфиг').item.json.fatsecret_tab }}",
+        "options": {"response": {"response": {"responseFormat": "text"}}}
+      },
+      "id": "a1e4d5b2-7c9f-4f3e-9a8b-1234567890ab",
+      "name": "Тянем FatSecret",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 224],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true,
+      "notes": "Питание из fatsecret_daily. continueOnFail — если вкладка пустая, дайджест всё равно отправляем."
+    },
+    {
+      "parameters": {
+        "url": "=https://docs.google.com/spreadsheets/d/{{ $('Конфиг').item.json.sheet_id }}/gviz/tq?tqx=out:csv&sheet={{ $('Конфиг').item.json.goals_tab }}",
+        "options": {"response": {"response": {"responseFormat": "text"}}}
+      },
+      "id": "b2f5e6c3-8d0a-5e4f-ab9c-234567890bcd",
+      "name": "Тянем цели КБЖУ",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 384],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "continueOnFail": true,
+      "notes": "nutrition_goals — таблица целей: date_set, kcal, protein_g, fat_g, carbs_g, source. Берём самую свежую строку."
+    },
+    {
+      "parameters": {
+        "jsCode": "// =====================================================================\n// Аналитика для утреннего дайджеста.\n// Источники: garmin_daily, gcal_events, fatsecret_daily, nutrition_goals.\n// =====================================================================\n\nconst garminCsv = $('Тянем Garmin CSV').item.json.data || $('Тянем Garmin CSV').item.json;\n\nlet eventsCsv = '';\ntry { eventsCsv = $('Тянем события').item.json.data || $('Тянем события').item.json || ''; } catch (e) {}\n\nlet fsCsv = '';\ntry { fsCsv = $('Тянем FatSecret').item.json.data || $('Тянем FatSecret').item.json || ''; } catch (e) {}\n\nlet goalsCsv = '';\ntry { goalsCsv = $('Тянем цели КБЖУ').item.json.data || $('Тянем цели КБЖУ').item.json || ''; } catch (e) {}\n\n// ---------- CSV parser ----------\nfunction parseCsv(raw) {\n  if (typeof raw !== 'string') raw = String(raw);\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\nconst rows      = parseCsv(garminCsv).sort((a,b)=>(a.date||'').localeCompare(b.date||''));\nconst eventRows = parseCsv(eventsCsv);\nconst fsRows    = parseCsv(fsCsv).sort((a,b)=>(a.date||'').localeCompare(b.date||''));\nconst goalsRows = parseCsv(goalsCsv).sort((a,b)=>(a.date_set||'').localeCompare(b.date_set||''));\n\n// ---------- helpers ----------\nconst num = (v) => {\n  if (v == null || v === '') return NaN;\n  if (typeof v === 'number') return v;\n  const cleaned = String(v).replace(/[\\s\\u00A0]/g,'').replace(',','.');\n  const n = parseFloat(cleaned);\n  return isFinite(n) ? n : NaN;\n};\nconst avg = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  if (!ys.length) return null;\n  return ys.reduce((a,b)=>a+b,0)/ys.length;\n};\nconst round = (v, d=1) => v == null ? null : Number(v.toFixed(d));\n\n// ---------- Текущая дата (МСК) и история ----------\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });\nconst latest = rows[rows.length - 1] || {};\nconst last7  = rows.slice(-7);\nconst prev7  = rows.slice(-14, -7);\nconst last14 = rows.slice(-14);\nconst last30 = rows.slice(-30);\n\nconst metricKeys = ['sleep_hours','sleep_score','hrv_last_night','steps','stress_avg','body_battery_min'];\nconst lowerIsBetter = { stress_avg: true };\n\n// ---------- Тренды Garmin ----------\nconst trends = {};\nfor (const k of metricKeys) {\n  const a7  = avg(last7.map(r=>r[k]));\n  const a14 = avg(last14.map(r=>r[k]));\n  const a30 = avg(last30.map(r=>r[k]));\n  const aPrev7 = avg(prev7.map(r=>r[k]));\n  const decimals = (k === 'sleep_hours') ? 1 : 0;\n  trends[k] = {\n    avg_7d: round(a7, decimals),\n    avg_14d: round(a14, decimals),\n    avg_30d: round(a30, decimals),\n    delta_vs_prev_week_pct: (a7!=null && aPrev7!=null && aPrev7!==0) ? Math.round((a7-aPrev7)/Math.abs(aPrev7)*100) : null,\n    delta_7d_vs_30d_pct:    (a7!=null && a30!=null && a30!==0)       ? Math.round((a7-a30)/Math.abs(a30)*100)       : null,\n  };\n}\n\nfunction streakWorseThanBaseline(rows, key, baseline, lowerIsBetterFlag) {\n  if (baseline == null) return 0;\n  let count = 0;\n  for (let i = rows.length - 1; i >= 0; i--) {\n    const v = num(rows[i][key]);\n    if (!isFinite(v)) break;\n    const worse = lowerIsBetterFlag ? (v > baseline) : (v < baseline);\n    if (worse) count++; else break;\n  }\n  return count;\n}\nconst streaks = {};\nfor (const k of metricKeys) {\n  streaks[k] = streakWorseThanBaseline(rows, k, trends[k].avg_30d, !!lowerIsBetter[k]);\n}\n\n// ---------- События по дням ----------\nconst eventsByDay = {};\nfor (const e of eventRows) {\n  const startIso = e.start_time || e.date || '';\n  const day = (startIso.match(/^(\\d{4}-\\d{2}-\\d{2})/) || [])[1] || '';\n  if (!day) continue;\n  const tm = startIso.match(/T(\\d{2}):(\\d{2})/);\n  const hour = tm ? parseInt(tm[1], 10) : null;\n  (eventsByDay[day] ||= []).push({\n    title: e.event_title || '',\n    time: tm ? `${tm[1]}:${tm[2]}` : '—',\n    hour,\n    is_evening: hour != null && hour >= 18,\n    is_late:    hour != null && hour >= 21,\n  });\n}\n\n// ---------- FatSecret: индекс по дате + тренды ----------\nconst fsByDate = {};\nfor (const r of fsRows) if (r.date) fsByDate[r.date] = r;\nconst fsLast7  = fsRows.slice(-7);\nconst fsPrev7  = fsRows.slice(-14, -7);\nconst fsLast30 = fsRows.slice(-30);\nconst fsKeys = ['calories_kcal','protein_g','fat_g','carbs_g'];\nconst fsTrends = {};\nfor (const k of fsKeys) {\n  const a7  = avg(fsLast7.map(r=>r[k]));\n  const a30 = avg(fsLast30.map(r=>r[k]));\n  const aPrev7 = avg(fsPrev7.map(r=>r[k]));\n  fsTrends[k] = {\n    avg_7d: round(a7, 0),\n    avg_30d: round(a30, 0),\n    delta_vs_prev_week_pct: (a7!=null && aPrev7!=null && aPrev7!==0) ? Math.round((a7-aPrev7)/Math.abs(aPrev7)*100) : null,\n    delta_7d_vs_30d_pct:    (a7!=null && a30!=null && a30!==0)       ? Math.round((a7-a30)/Math.abs(a30)*100)       : null,\n  };\n}\n\n// ---------- Цель КБЖУ: берём самую свежую запись ----------\nconst latestGoal = goalsRows[goalsRows.length - 1] || null;\nconst goal = latestGoal ? {\n  date_set:  latestGoal.date_set || null,\n  kcal:      num(latestGoal.kcal)      || null,\n  protein_g: num(latestGoal.protein_g) || null,\n  fat_g:     num(latestGoal.fat_g)     || null,\n  carbs_g:   num(latestGoal.carbs_g)   || null,\n  source:    latestGoal.source || null,\n} : null;\n\n// Streak'и в FS — подряд дней в норме (между warn=±25% и good=±10% от цели).\n// Считаем по каждому из ккал/Б/Ж/У отдельно. \"в норме\" = abs(delta_pct) <= 15.\nfunction nutritionStreak(rows, key, target) {\n  if (!target) return 0;\n  let count = 0;\n  for (let i = rows.length - 1; i >= 0; i--) {\n    const v = num(rows[i][key]);\n    if (!isFinite(v)) break;\n    const delta = Math.abs(v - target) / target * 100;\n    if (delta <= 15) count++; else break;\n  }\n  return count;\n}\nconst nutritionStreaks = goal ? {\n  calories_kcal: nutritionStreak(fsRows, 'calories_kcal', goal.kcal),\n  protein_g:     nutritionStreak(fsRows, 'protein_g',     goal.protein_g),\n  fat_g:         nutritionStreak(fsRows, 'fat_g',         goal.fat_g),\n  carbs_g:       nutritionStreak(fsRows, 'carbs_g',       goal.carbs_g),\n} : null;\n\n// Питание за вчера + дельта к цели в %\nconst fsYesterday = fsByDate[latest.date] || null;\nconst nutritionYesterday = fsYesterday ? {\n  date: fsYesterday.date,\n  calories_kcal: round(num(fsYesterday.calories_kcal), 0),\n  protein_g:     round(num(fsYesterday.protein_g),     0),\n  fat_g:         round(num(fsYesterday.fat_g),         0),\n  carbs_g:       round(num(fsYesterday.carbs_g),       0),\n  fiber_g:       round(num(fsYesterday.fiber_g),       0),\n  entries_count: num(fsYesterday.entries_count) || 0,\n  vs_goal_pct: goal ? {\n    calories_kcal: goal.kcal      ? Math.round((num(fsYesterday.calories_kcal) - goal.kcal)      / goal.kcal      * 100) : null,\n    protein_g:     goal.protein_g ? Math.round((num(fsYesterday.protein_g)     - goal.protein_g) / goal.protein_g * 100) : null,\n    fat_g:         goal.fat_g     ? Math.round((num(fsYesterday.fat_g)         - goal.fat_g)     / goal.fat_g     * 100) : null,\n    carbs_g:       goal.carbs_g   ? Math.round((num(fsYesterday.carbs_g)       - goal.carbs_g)   / goal.carbs_g   * 100) : null,\n  } : null,\n} : null;\n\n// ---------- daily_last_7: контекст за 7 дней (Garmin + события + питание) ----------\nconst dailyContext = last7.map(r => {\n  const d = r.date;\n  const evs = eventsByDay[d] || [];\n  const fs  = fsByDate[d] || {};\n  return {\n    date: d,\n    sleep_hours: round(num(r.sleep_hours), 1),\n    sleep_score: num(r.sleep_score) || null,\n    hrv:    num(r.hrv_last_night) || null,\n    stress: num(r.stress_avg)     || null,\n    steps:  num(r.steps)          || null,\n    body_battery_min: num(r.body_battery_min) || null,\n    events_total:   evs.length,\n    events_evening: evs.filter(e => e.is_evening).length,\n    events_late:    evs.filter(e => e.is_late).length,\n    kcal:    num(fs.calories_kcal) || null,\n    protein: num(fs.protein_g)     || null,\n    fat:     num(fs.fat_g)         || null,\n    carbs:   num(fs.carbs_g)       || null,\n  };\n});\n\n// ---------- События на сегодня ----------\nconst todayEvents = (eventsByDay[today] || [])\n  .sort((a,b) => a.time.localeCompare(b.time))\n  .slice(0, 6)\n  .map(e => ({ title: e.title, time: e.time }));\n\n// ---------- Финальный payload ----------\nconst payload = {\n  today,\n  yesterday: {\n    date: latest.date || null,\n    sleep_hours: round(num(latest.sleep_hours), 1),\n    sleep_score: num(latest.sleep_score) || null,\n    hrv:    num(latest.hrv_last_night) || null,\n    steps:  num(latest.steps)          || null,\n    stress: num(latest.stress_avg)     || null,\n    body_battery_max: num(latest.body_battery_max) || null,\n    body_battery_min: num(latest.body_battery_min) || null,\n    events_total:   (eventsByDay[latest.date] || []).length,\n    events_evening: (eventsByDay[latest.date] || []).filter(e => e.is_evening).length,\n    events_late:    (eventsByDay[latest.date] || []).filter(e => e.is_late).length,\n  },\n  trends,\n  streaks,\n  nutrition_yesterday: nutritionYesterday,\n  nutrition_goal: goal,\n  nutrition_trends: fsTrends,\n  nutrition_streaks: nutritionStreaks,\n  daily_last_7: dailyContext,\n  events_today: todayEvents,\n  events_in_sheet_total: eventRows.length,\n  fs_in_sheet_total: fsRows.length,\n  dashboard_url: $('Конфиг').item.json.dashboard_url,\n};\n\nreturn [{ json: payload }];"
+      },
+      "id": "39a99bde-f40a-4e87-8646-43b4de098614",
+      "name": "Считаем тренды и связи",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [288, 144]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "anthropic-version", "value": "2023-06-01"},
+            {"name": "content-type",      "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1700,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery, питание + календарь встреч). Каждое утро в Telegram присылаешь короткий тезисный разбор: что произошло, почему так, тенденция, и ОДНА конкретная рекомендация на основе подмеченной связи.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров про «не медицинский совет».\\n\\nФормат ответа СТРОГО такой (придерживайся структуры, без отсебятины):\\n\\n🌅 *Доброе утро*\\n\\n*Вчера:* одной строкой через · — сон + score, HRV, шаги, стресс, Body Battery min. Пример: «сон 7,1 ч (81) · HRV 36 · 31019 шагов · стресс 43 · BB min 46».\\n\\n*Питание:* одной строкой через · — ккал, Б/Ж/У, и в скобках % от цели если nutrition_goal есть. Пример: «2204 ккал (+22 % к цели) · Б 162 / Ж 70 / У 242». Если nutrition_yesterday=null — пропусти этот блок целиком (за вчера в FS пусто).\\n\\n*Тенденция:* 1–2 строки про последние 7/14/30 дней по Garmin И по питанию. Используй конкретные дельты из trends и nutrition_trends. Если ккал за неделю заметно отклонились от цели или базы — отметь. Если всё ровно — пиши «без сдвигов».\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками, питанием и календарём. Опирайся на daily_last_7 (там для каждого дня kcal, protein, fat, carbs + events_evening/late + sleep/hrv/stress) — соотноси. Примеры связей, которые стоит ловить: «дни с углеводами >250 г → Body Battery min ниже среднего на N %», «после 3 дней профицита ккал — стресс растёт», «вечера с встречами после 21:00 → меньше белка на завтра». Если связи не видишь — пропусти этот блок целиком.\\n\\n*Рекомендация:* ровно ОДНА строка, конкретная, на основе подмеченной связи. Если связи не нашлось — пропусти этот блок (лучше тишина, чем шаблонный совет).\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила анализа:\\n— Округляй: сон до десятых, ккал и Б/Ж/У до целых, % до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней по любой метрике — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % — отметь как «сильный сдвиг».\\n— По питанию: если |kcal vs goal| > 20 % — флагни. Если белок 3+ дня подряд ниже цели — флагни. Используй nutrition_streaks (это streak'и подряд дней В НОРМЕ, т.е. в ±15 % от цели).\\n— Связи строй ТОЛЬКО на данных из daily_last_7. Не выдумывай.\\n— Никаких общих советов из учебника. Только то, что следует из ТВОИХ данных.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без буллетов.\",\n  \"messages\": [\n    {\"role\": \"user\", \"content\": {{ JSON.stringify(JSON.stringify($json)) }}}\n  ]\n}",
+        "options": {}
+      },
+      "id": "768aacb0-636e-411d-a8d2-56c39bfb36b5",
+      "name": "Claude: разбор",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [528, 144],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "07gFyVjTm2K0oX6V",
+          "name": "Anthropic x-api-key"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Конфиг').item.json.telegram_chat_id }}",
+        "text": "={{ ($json.content && $json.content[0] && $json.content[0].text) ? $json.content[0].text : ('⚠️ *Дайджест не сформирован* (сбой Claude API после 3 попыток).\\n\\n*Вчера:*\\n• Сон: ' + ($('Считаем тренды и связи').item.json.yesterday.sleep_hours || '—') + ' ч (score ' + ($('Считаем тренды и связи').item.json.yesterday.sleep_score || '—') + ')\\n• HRV: ' + ($('Считаем тренды и связи').item.json.yesterday.hrv || '—') + ' мс\\n• Шаги: ' + ($('Считаем тренды и связи').item.json.yesterday.steps || '—') + '\\n• Стресс: ' + ($('Считаем тренды и связи').item.json.yesterday.stress || '—') + '/100' + ($('Считаем тренды и связи').item.json.nutrition_yesterday ? ('\\n• Питание: ' + $('Считаем тренды и связи').item.json.nutrition_yesterday.calories_kcal + ' ккал · Б ' + $('Считаем тренды и связи').item.json.nutrition_yesterday.protein_g + ' / Ж ' + $('Считаем тренды и связи').item.json.nutrition_yesterday.fat_g + ' / У ' + $('Считаем тренды и связи').item.json.nutrition_yesterday.carbs_g) : '') + '\\n\\n*Дашборд:* ' + $('Конфиг').item.json.dashboard_url) }}",
+        "additionalFields": {"parse_mode": "Markdown"}
+      },
+      "id": "213a523c-b85f-4919-834c-4309688a75c3",
+      "name": "Отправить в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [768, 144],
+      "credentials": {
+        "telegramApi": {
+          "id": "7SDIZH0t1SUnfezT",
+          "name": "Life Dashboard Bot"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Каждое утро 08:30 МСК": {"main": [[{"node": "Конфиг", "type": "main", "index": 0}]]},
+    "Конфиг": {"main": [[
+      {"node": "Тянем Garmin CSV",   "type": "main", "index": 0},
+      {"node": "Тянем события",      "type": "main", "index": 0},
+      {"node": "Тянем FatSecret",    "type": "main", "index": 0},
+      {"node": "Тянем цели КБЖУ",    "type": "main", "index": 0}
+    ]]},
+    "Тянем Garmin CSV":  {"main": [[{"node": "Считаем тренды и связи", "type": "main", "index": 0}]]},
+    "Тянем события":     {"main": [[{"node": "Считаем тренды и связи", "type": "main", "index": 0}]]},
+    "Тянем FatSecret":   {"main": [[{"node": "Считаем тренды и связи", "type": "main", "index": 0}]]},
+    "Тянем цели КБЖУ":   {"main": [[{"node": "Считаем тренды и связи", "type": "main", "index": 0}]]},
+    "Считаем тренды и связи": {"main": [[{"node": "Claude: разбор", "type": "main", "index": 0}]]},
+    "Claude: разбор":    {"main": [[{"node": "Отправить в Telegram", "type": "main", "index": 0}]]}
+  },
+  "active": false,
+  "settings": {"executionOrder": "v1", "binaryMode": "separate"},
+  "meta": {"templateCredsSetupCompleted": true}
+}

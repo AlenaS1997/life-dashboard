@@ -1,0 +1,362 @@
+{
+  "name": "bot-reminder-writer",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "831a63d6-2090-445b-8095-d6fd1fe94f64",
+      "name": "Telegram: входящее сообщение",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -864,
+        112
+      ],
+      "webhookId": "d9a48c23-ac29-468b-afe0-6b17286a912d",
+      "credentials": {
+        "telegramApi": {
+          "id": "7SDIZH0t1SUnfezT",
+          "name": "Life Dashboard Bot"
+        }
+      },
+      "notes": "Слушает все сообщения от пользователя. n8n автоматически регистрирует webhook у Telegram при активации workflow."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sheet-id",
+              "name": "sheet_id",
+              "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+              "type": "string"
+            },
+            {
+              "id": "reminders-tab",
+              "name": "reminders_tab",
+              "value": "health_reminders",
+              "type": "string"
+            },
+            {
+              "id": "user-text",
+              "name": "user_text",
+              "value": "={{ $('Telegram: входящее сообщение').item.json.message.text || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "chat-id",
+              "name": "chat_id",
+              "value": "={{ $('Telegram: входящее сообщение').item.json.message.chat.id }}",
+              "type": "string"
+            },
+            {
+              "id": "today-iso",
+              "name": "today_iso",
+              "value": "={{ $now.toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5d04602-baf6-44d6-b614-40f9f9015416",
+      "name": "Конфиг",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -640,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 400,\n  \"system\": \"Ты парсер напоминаний. Пользователь пишет тебе свободный текст в Telegram, ты возвращаешь СТРОГО JSON без markdown-обёртки и без объяснений.\\n\\nСегодняшняя дата: {{ $('Конфиг').item.json.today_iso }}.\\n\\nФормат ответа:\\n{\\\"intent\\\": \\\"reminder\\\" | \\\"unknown\\\", \\\"title\\\": \\\"...\\\", \\\"description\\\": \\\"...\\\", \\\"next_date\\\": \\\"YYYY-MM-DD\\\", \\\"frequency\\\": \\\"once\\\"|\\\"daily\\\"|\\\"weekly\\\"|\\\"monthly\\\"|\\\"yearly\\\"|число_дней}\\n\\nПравила:\\n— Если в сообщении есть конкретная дата или относительное время («через неделю», «завтра», «3 мая», «каждый понедельник») — intent=reminder.\\n— Если непонятно или это вопрос/приветствие — intent=unknown, остальные поля пустые.\\n— Дата в формате YYYY-MM-DD. Считай относительные даты от сегодняшней.\\n— Если сказано «каждый день/неделю/месяц/год» — frequency соответственно daily/weekly/monthly/yearly.\\n— Если сказано «раз в N дней» — frequency=N (целое число).\\n— По умолчанию frequency=once.\\n— title — короткое название действия (3-5 слов), description — пусто или дополнительный контекст.\\n— Возвращай только валидный JSON. Не оборачивай в ```json``` или иные блоки.\\n\\nПримеры:\\nВход: «30 мая - сдать анализы крови»\\nВыход: {\\\"intent\\\":\\\"reminder\\\",\\\"title\\\":\\\"Сдать анализы крови\\\",\\\"description\\\":\\\"\\\",\\\"next_date\\\":\\\"2026-05-30\\\",\\\"frequency\\\":\\\"once\\\"}\\n\\nВход: «каждый понедельник взвеситься»\\nВыход: {\\\"intent\\\":\\\"reminder\\\",\\\"title\\\":\\\"Взвеситься\\\",\\\"description\\\":\\\"\\\",\\\"next_date\\\":\\\"<следующий понедельник>\\\",\\\"frequency\\\":\\\"weekly\\\"}\\n\\nВход: «привет»\\nВыход: {\\\"intent\\\":\\\"unknown\\\",\\\"title\\\":\\\"\\\",\\\"description\\\":\\\"\\\",\\\"next_date\\\":\\\"\\\",\\\"frequency\\\":\\\"once\\\"}\",\n  \"messages\": [\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($('Конфиг').item.json.user_text) }}}\n  ]\n}",
+        "options": {}
+      },
+      "id": "e7d73975-970a-444a-8390-6c216c308646",
+      "name": "Claude: парсит reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -416,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "07gFyVjTm2K0oX6V",
+          "name": "Anthropic x-api-key"
+        }
+      },
+      "notes": "Используем Claude Haiku 4.5 — он дешевле и быстрее, для парсинга простых строк хватает."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсим JSON-ответ от Claude. Возвращаем плоский объект — поля колонок на верхнем уровне для autoMap в Sheets.\nconst raw = $input.first().json;\nlet text = '';\ntry { text = raw.content[0].text || ''; } catch (e) { text = ''; }\n\n// Иногда Claude всё равно оборачивает в ```json``` — снимем.\ntext = text.replace(/```json\\s*/i, '').replace(/```\\s*$/, '').trim();\n\nlet parsed;\ntry { parsed = JSON.parse(text); }\ncatch (e) { parsed = { intent: 'unknown', _parse_error: text.slice(0, 200) }; }\n\nconst chatId = $('Конфиг').item.json.chat_id;\n\nif (parsed.intent !== 'reminder' || !parsed.next_date || !parsed.title) {\n  return [{\n    json: {\n      action: 'reply_only',\n      chat_id: chatId,\n      reply_text: '🤔 Не понял как создать напоминание. Напиши в формате:\\n\\n• «30 мая — сдать анализы»\\n• «через неделю — стоматолог»\\n• «каждый понедельник — взвеситься»\\n• «раз в 14 дней — стирать постельное»',\n    }\n  }];\n}\n\nconst slug = parsed.title.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);\nconst reminderId = slug + '-' + Date.now().toString(36);\n\nreturn [{\n  json: {\n    action: 'add_reminder',\n    chat_id: chatId,\n    reply_text: `✅ Запомнила:\\n*${parsed.title}*\\nна *${parsed.next_date}* (${String(parsed.frequency || 'once')})`,\n    // Поля для Sheets — на верхнем уровне для autoMap:\n    reminder_id: reminderId,\n    title: parsed.title,\n    description: parsed.description || '',\n    next_date: parsed.next_date,\n    frequency: String(parsed.frequency || 'once'),\n    enabled: 'TRUE',\n    last_sent: '',\n  }\n}];"
+      },
+      "id": "f5891dad-1c6c-4a3d-9921-1962319da5e7",
+      "name": "Распарсить ответ Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Пропускаем дальше только если action=add_reminder.\n// Поля row теперь плоские (на верхнем уровне) — это нужно для autoMapInputData в Sheets.\nconst item = $input.first().json;\nif (item && item.action === 'add_reminder' && item.reminder_id) {\n  return [{ json: item }];\n}\nreturn [];"
+      },
+      "id": "025a2ab2-6151-4475-8a06-fb5b63fb4fcb",
+      "name": "Только если add_reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "health_reminders",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "reminder_id",
+              "displayName": "reminder_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title ",
+              "displayName": "title ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "next_date ",
+              "displayName": "next_date ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "frequency ",
+              "displayName": "frequency ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "enabled",
+              "displayName": "enabled",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_sent",
+              "displayName": "last_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "04b6b99c-e0d3-4530-9ed6-ae1d6a086164",
+      "name": "Добавить в health_reminders",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "executeOnce": false,
+      "alwaysOutputData": false,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "hAcgNi2Hn193jFsH",
+          "name": "Google Sheets account"
+        }
+      },
+      "notes": "Запускается только когда action=add_reminder. Иначе обходится через alwaysOutputData=false и условие ниже."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.reply_text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b0ea0405-6a72-4c88-80b8-6c13f9be1760",
+      "name": "Ответить в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        208
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "webhookId": "d2947e5e-5905-4163-99cb-82ab1122e3a6",
+      "credentials": {
+        "telegramApi": {
+          "id": "7SDIZH0t1SUnfezT",
+          "name": "Life Dashboard Bot"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram: входящее сообщение": {
+      "main": [
+        [
+          {
+            "node": "Конфиг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Конфиг": {
+      "main": [
+        [
+          {
+            "node": "Claude: парсит reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: парсит reminder": {
+      "main": [
+        [
+          {
+            "node": "Распарсить ответ Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Распарсить ответ Claude": {
+      "main": [
+        [
+          {
+            "node": "Только если add_reminder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ответить в Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Только если add_reminder": {
+      "main": [
+        [
+          {
+            "node": "Добавить в health_reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "b90897a4-65d9-45bb-b167-a833674d0968",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "351931e00d6bbd6c8f33a66b091e072f1025e0d20dd2315e5d01a46f439fa1af"
+  },
+  "id": "IJF8QsKEgsQQYRrf",
+  "tags": []
+}

@@ -1,25 +1,25 @@
 {
-  "name": "Life Dashboard — Google Calendar → Sheets sync",
+  "name": "gcal-sync",
   "nodes": [
     {
       "parameters": {
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 8,
-              "triggerAtMinute": 0
+              "triggerAtHour": 8
             }
           ]
         }
       },
-      "id": "trigger-cron",
+      "id": "26cf861e-370e-4e26-b9e2-86e0c2f5624d",
       "name": "Каждый день 08:00 МСК",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [240, 300],
-      "notes": "Запуск 08:00 в timezone из settings (Europe/Moscow). Режим 'days at HH:MM' уважает workflow timezone, в отличие от cronExpression. Запускается ДО garmin-sync (08:05, GitHub Actions) и до утреннего дайджеста (08:30, n8n)."
+      "position": [
+        -1280,
+        -48
+      ],
+      "notes": "Cron в UTC: 05:00 = 08:00 МСК. Запускается ДО garmin-sync (08:05) и до утреннего дайджеста (08:30)."
     },
     {
       "parameters": {
@@ -40,23 +40,25 @@
             {
               "id": "calendar-id",
               "name": "calendar_id",
-              "value": "savchenko.alena.27071997@gmail.com",
+              "value": "Fluffyismylifemoscow@gmail.com",
               "type": "string"
             }
           ]
         },
         "options": {}
       },
-      "id": "config",
+      "id": "a64c5f5e-35af-483a-84aa-5a74bf734a4c",
       "name": "Конфиг",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [460, 300],
+      "position": [
+        -1056,
+        -48
+      ],
       "notes": "Если у тебя несколько календарей и нужны все — поменяй calendar_id на 'primary' или нужный ID."
     },
     {
       "parameters": {
-        "resource": "event",
         "operation": "getAll",
         "calendar": {
           "__rl": true,
@@ -64,91 +66,53 @@
           "mode": "id"
         },
         "returnAll": true,
+        "timeMin": "={{ $now.startOf('day') }}",
+        "timeMax": "={{ $now.endOf('day') }}",
         "options": {
-          "singleEvents": true,
-          "timeMin": "={{ $now.startOf('day').toISO() }}",
-          "timeMax": "={{ $now.endOf('day').toISO() }}",
-          "orderBy": "startTime"
+          "orderBy": "startTime",
+          "recurringEventHandling": "expand",
+          "timeZone": {
+            "__rl": true,
+            "value": "Europe/Moscow",
+            "mode": "list",
+            "cachedResultName": "Europe/Moscow"
+          },
+          "updatedMin": ""
         }
       },
-      "id": "fetch-events",
+      "id": "2fcc9ad4-2c1a-4ff0-9187-ddc12c7fe8f1",
       "name": "Получить события дня",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
-      "position": [680, 300],
+      "position": [
+        -832,
+        -48
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "lzwgiYcbTUXk1Z3W",
+          "name": "Google Calendar account"
+        }
+      },
       "notes": "singleEvents: true — раскрывает повторяющиеся события (Подъём, Зал, ...) в индивидуальные экземпляры на сегодня. timeMin/timeMax — границы сегодняшнего дня в локальной таймзоне инстанса (timezone в settings = Europe/Moscow)."
     },
     {
       "parameters": {
         "jsCode": "// Преобразуем события Google Calendar в строки таблицы\n// Колонки: date, event_title, start_time, end_time, calendar\nconst items = $input.all();\nif (!items.length) {\n  // Событий нет — возвращаем один пустой объект-маркер,\n  // чтобы Clear sheet всё равно отработал и таблица очистилась.\n  return [{ json: { __empty: true } }];\n}\nreturn items.map((item) => {\n  const e = item.json;\n  const start = (e.start && (e.start.dateTime || e.start.date)) || '';\n  const end = (e.end && (e.end.dateTime || e.end.date)) || '';\n  return {\n    json: {\n      date: start,\n      event_title: e.summary || '',\n      start_time: start,\n      end_time: end,\n      calendar: (e.organizer && e.organizer.email) || (e.creator && e.creator.email) || ''\n    }\n  };\n});"
       },
-      "id": "map-rows",
+      "id": "37e77b8f-a7c5-42e2-b847-20245271738d",
       "name": "Маппим в строки таблицы",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300],
+      "position": [
+        -608,
+        -48
+      ],
+      "disabled": true,
       "notes": "Если событий 0 — отдаём служебный объект {__empty:true}, чтобы Clear sheet точно отработал. Append-нода это поле увидит и пропустит запись (см. фильтр ниже)."
-    },
-    {
-      "parameters": {
-        "operation": "clear",
-        "documentId": {
-          "__rl": true,
-          "value": "={{ $('Конфиг').item.json.sheet_id }}",
-          "mode": "id"
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "={{ $('Конфиг').item.json.events_tab }}",
-          "mode": "name"
-        },
-        "clear": "specificRows",
-        "startIndex": 2,
-        "rowsToDelete": 5000
-      },
-      "id": "clear-sheet",
-      "name": "Очистить gcal_events (кроме заголовка)",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [1120, 300],
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 3000,
-      "executeOnce": true,
-      "notes": "Очищаем строки 2..5001 в листе gcal_events. Заголовок (строка 1) остаётся. Это и есть гарантия идемпотентности: каждое утро таблица обнуляется и записывается заново."
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "not-empty",
-              "leftValue": "={{ $('Маппим в строки таблицы').first().json.__empty }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "notEqual"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "guard-empty",
-      "name": "Есть ли события?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [1340, 300],
-      "notes": "Если событий нет — append пропускаем, таблица остаётся пустой (только заголовок). Дашборд покажет «На сегодня событий нет»."
     },
     {
       "parameters": {
@@ -167,21 +131,84 @@
           "mappingMode": "autoMapInputData",
           "value": {},
           "matchingColumns": [],
-          "schema": []
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_title",
+              "displayName": "event_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "start_time",
+              "displayName": "start_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "end_time",
+              "displayName": "end_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "calendar",
+              "displayName": "calendar",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         },
         "options": {}
       },
-      "id": "append-rows",
+      "id": "99442b35-4c11-4e15-87e0-8b36f30459df",
       "name": "Append в gcal_events",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1560, 240],
+      "position": [
+        48,
+        -112
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 3000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "hAcgNi2Hn193jFsH",
+          "name": "Google Sheets account"
+        }
+      },
       "notes": "Колонки в таблице: date, event_title, start_time, end_time, calendar. Auto-map по именам — n8n сам сопоставит."
     }
   ],
+  "pinData": {},
   "connections": {
     "Каждый день 08:00 МСК": {
       "main": [
@@ -220,40 +247,24 @@
       "main": [
         [
           {
-            "node": "Очистить gcal_events (кроме заголовка)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Очистить gcal_events (кроме заголовка)": {
-      "main": [
-        [
-          {
-            "node": "Есть ли события?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Есть ли события?": {
-      "main": [
-        [
-          {
             "node": "Append в gcal_events",
             "type": "main",
             "index": 0
           }
-        ],
-        []
+        ]
       ]
     }
   },
+  "active": true,
   "settings": {
     "executionOrder": "v1",
-    "timezone": "Europe/Moscow"
+    "binaryMode": "separate"
   },
-  "tags": ["life-dashboard", "calendar", "sync"]
+  "versionId": "423365f7-36ae-4f9b-90bc-5ef3ee865849",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "351931e00d6bbd6c8f33a66b091e072f1025e0d20dd2315e5d01a46f439fa1af"
+  },
+  "id": "wHaAGzewwJbgGnMZ",
+  "tags": []
 }

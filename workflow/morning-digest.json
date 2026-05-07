@@ -1,25 +1,26 @@
 {
-  "name": "Life Dashboard — Morning Digest",
+  "name": "morning-digest",
   "nodes": [
     {
       "parameters": {
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "daysInterval": 1,
               "triggerAtHour": 8,
               "triggerAtMinute": 30
             }
           ]
         }
       },
-      "id": "trigger-cron",
+      "id": "16502d77-fe9a-4529-b637-b770141141ae",
       "name": "Каждое утро 08:30 МСК",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
-      "position": [240, 300],
-      "notes": "Запуск 08:30 в timezone из settings (Europe/Moscow). Используем режим 'days at HH:MM' вместо cronExpression — он гарантированно уважает workflow timezone, тогда как cronExpression в n8n часто срабатывает в timezone самого инстанса (Railway-контейнер живёт в UTC/EDT). Запускается ПОСЛЕ garmin-sync (GitHub Actions, 08:05) и gcal-sync (08:00)."
+      "position": [
+        -448,
+        112
+      ],
+      "notes": "Cron в UTC: 05:30 = 08:30 МСК. Запускается ПОСЛЕ garmin-sync (08:05) и gcal-sync (08:00)."
     },
     {
       "parameters": {
@@ -46,7 +47,7 @@
             {
               "id": "chat-id",
               "name": "telegram_chat_id",
-              "value": "REPLACE_ME_WITH_YOUR_CHAT_ID",
+              "value": "264374209",
               "type": "string"
             },
             {
@@ -59,11 +60,14 @@
         },
         "options": {}
       },
-      "id": "config",
+      "id": "af84a5c5-d202-4b26-a153-93b243257328",
       "name": "Конфиг",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [460, 300],
+      "position": [
+        -224,
+        112
+      ],
       "notes": "Поправь telegram_chat_id (узнать можно у @userinfobot в Telegram)."
     },
     {
@@ -77,11 +81,14 @@
           }
         }
       },
-      "id": "fetch-garmin",
+      "id": "d4653305-594b-4012-9cf9-c4fc7ebd050c",
       "name": "Тянем Garmin CSV (история)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 200],
+      "position": [
+        0,
+        0
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
@@ -98,11 +105,14 @@
           }
         }
       },
-      "id": "fetch-events",
+      "id": "62e867e3-80a7-4fb3-8372-f69798013cf1",
       "name": "Тянем события из Sheets",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [680, 400],
+      "position": [
+        0,
+        208
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
@@ -113,11 +123,14 @@
       "parameters": {
         "jsCode": "// =====================================================================\n// Аналитика для утреннего дайджеста.\n// События читаем из вкладки gcal_events (туда пишет gcal-sync workflow).\n// Calendar API не дёргаем — Sheets надёжнее и совпадает с дашбордом.\n// =====================================================================\n\nconst garminCsv = $('Тянем Garmin CSV (история)').item.json.data || $('Тянем Garmin CSV (история)').item.json;\n\nlet eventsCsv = '';\ntry {\n  eventsCsv = $('Тянем события из Sheets').item.json.data || $('Тянем события из Sheets').item.json || '';\n} catch (e) {\n  eventsCsv = '';\n}\n\n// ---------- CSV parser ----------\nfunction parseCsv(raw) {\n  if (typeof raw !== 'string') raw = String(raw);\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  if (!lines.length) return [];\n  const splitLine = (s) => s.match(/(\"([^\"]|\"\")*\"|[^,]*)(,|$)/g)\n    .filter(Boolean)\n    .map(v => v.replace(/,$/, '').replace(/^\"|\"$/g, '').replace(/\"\"/g, '\"').trim());\n  const headers = splitLine(lines[0]);\n  return lines.slice(1).map(line => {\n    const cells = splitLine(line);\n    const obj = {};\n    headers.forEach((h, i) => { obj[h] = cells[i] ?? ''; });\n    return obj;\n  });\n}\nconst rows = parseCsv(garminCsv).sort((a,b)=>(a.date||'').localeCompare(b.date||''));\nconst eventRows = parseCsv(eventsCsv);\n\n// ---------- helpers ----------\nconst num = (v) => {\n  if (v == null || v === '') return NaN;\n  if (typeof v === 'number') return v;\n  const cleaned = String(v).replace(/[\\s\\u00A0]/g,'').replace(',','.');\n  const n = parseFloat(cleaned);\n  return isFinite(n) ? n : NaN;\n};\nconst avg = (xs) => {\n  const ys = xs.map(num).filter(v => isFinite(v));\n  if (!ys.length) return null;\n  return ys.reduce((a,b)=>a+b,0)/ys.length;\n};\nconst round = (v, d=1) => v == null ? null : Number(v.toFixed(d));\n\n// ---------- Текущая дата (МСК!) и история ----------\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });\nconst latest = rows[rows.length - 1] || {};\nconst last7 = rows.slice(-7);\nconst prev7 = rows.slice(-14, -7);\nconst last14 = rows.slice(-14);\nconst last30 = rows.slice(-30);\n\nconst metricKeys = ['sleep_hours','sleep_score','hrv_last_night','steps','stress_avg','body_battery_min'];\nconst lowerIsBetter = { stress_avg: true };\n\n// ---------- Тренды ----------\nconst trends = {};\nfor (const k of metricKeys) {\n  const a7 = avg(last7.map(r=>r[k]));\n  const a14 = avg(last14.map(r=>r[k]));\n  const a30 = avg(last30.map(r=>r[k]));\n  const aPrev7 = avg(prev7.map(r=>r[k]));\n  const decimals = (k === 'sleep_hours') ? 1 : 0;\n  trends[k] = {\n    avg_7d: round(a7, decimals),\n    avg_14d: round(a14, decimals),\n    avg_30d: round(a30, decimals),\n    delta_vs_prev_week_pct: (a7 != null && aPrev7 != null && aPrev7 !== 0)\n      ? Math.round((a7 - aPrev7) / Math.abs(aPrev7) * 100) : null,\n    delta_7d_vs_30d_pct: (a7 != null && a30 != null && a30 !== 0)\n      ? Math.round((a7 - a30) / Math.abs(a30) * 100) : null,\n  };\n}\n\n// ---------- Streak'и ----------\nfunction streakWorseThanBaseline(rows, key, baseline, lowerIsBetterFlag) {\n  if (baseline == null) return 0;\n  let count = 0;\n  for (let i = rows.length - 1; i >= 0; i--) {\n    const v = num(rows[i][key]);\n    if (!isFinite(v)) break;\n    const worse = lowerIsBetterFlag ? (v > baseline) : (v < baseline);\n    if (worse) count++; else break;\n  }\n  return count;\n}\nconst streaks = {};\nfor (const k of metricKeys) {\n  streaks[k] = streakWorseThanBaseline(rows, k, trends[k].avg_30d, !!lowerIsBetter[k]);\n}\n\n// ---------- События по дням ----------\n// Колонки в gcal_events: date, event_title, start_time, end_time, calendar\n// start_time — ISO datetime в МСК (например 2026-04-30T14:00:00). Берём первые 10 символов как день.\nconst eventsByDay = {};\nfor (const e of eventRows) {\n  const startIso = e.start_time || e.date || '';\n  const day = (startIso.match(/^(\\d{4}-\\d{2}-\\d{2})/) || [])[1] || '';\n  if (!day) continue;\n  const timeMatch = startIso.match(/T(\\d{2}):(\\d{2})/);\n  const hour = timeMatch ? parseInt(timeMatch[1], 10) : null;\n  (eventsByDay[day] ||= []).push({\n    title: e.event_title || '',\n    time: timeMatch ? `${timeMatch[1]}:${timeMatch[2]}` : '—',\n    hour,\n    is_evening: hour != null && hour >= 18,\n    is_late: hour != null && hour >= 21,\n  });\n}\n\n// ---------- daily_last_7: контекст за 7 дней с метриками + событиями ----------\nconst dailyContext = last7.map(r => {\n  const d = r.date;\n  const evs = eventsByDay[d] || [];\n  return {\n    date: d,\n    sleep_hours: round(num(r.sleep_hours), 1),\n    sleep_score: num(r.sleep_score) || null,\n    hrv: num(r.hrv_last_night) || null,\n    stress: num(r.stress_avg) || null,\n    steps: num(r.steps) || null,\n    body_battery_min: num(r.body_battery_min) || null,\n    events_total: evs.length,\n    events_evening: evs.filter(e => e.is_evening).length,\n    events_late: evs.filter(e => e.is_late).length,\n  };\n});\n\n// ---------- События на сегодня ----------\nconst todayEvents = (eventsByDay[today] || [])\n  .sort((a,b) => a.time.localeCompare(b.time))\n  .slice(0, 6)\n  .map(e => ({ title: e.title, time: e.time }));\n\n// ---------- Финальный payload ----------\nconst payload = {\n  today,\n  yesterday: {\n    date: latest.date || null,\n    sleep_hours: round(num(latest.sleep_hours), 1),\n    sleep_score: num(latest.sleep_score) || null,\n    hrv: num(latest.hrv_last_night) || null,\n    steps: num(latest.steps) || null,\n    stress: num(latest.stress_avg) || null,\n    body_battery_max: num(latest.body_battery_max) || null,\n    body_battery_min: num(latest.body_battery_min) || null,\n    events_total: (eventsByDay[latest.date] || []).length,\n    events_evening: (eventsByDay[latest.date] || []).filter(e => e.is_evening).length,\n    events_late: (eventsByDay[latest.date] || []).filter(e => e.is_late).length,\n  },\n  trends,\n  streaks,\n  daily_last_7: dailyContext,\n  events_today: todayEvents,\n  events_in_sheet_total: eventRows.length,\n  weather: null,\n  dashboard_url: $('Конфиг').item.json.dashboard_url,\n};\n\nreturn [{ json: payload }];"
       },
-      "id": "build-context",
+      "id": "39a99bde-f40a-4e87-8646-43b4de098614",
       "name": "Считаем тренды и связи",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [
+        224,
+        112
+      ]
     },
     {
       "parameters": {
@@ -140,23 +153,27 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1500,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery + календарь встреч). Каждое утро в Telegram присылаешь короткий тезисный разбор: что произошло, почему так, тенденция, и ОДНА конкретная рекомендация на основе подмеченной связи.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров про «не медицинский совет».\\n\\nФормат ответа СТРОГО такой (придерживайся структуры, без отсебятины):\\n\\n🌅 *Доброе утро*\\n\\n*Вчера:* одной строкой через · — сон + score, HRV, шаги, стресс, Body Battery min. Пример: «сон 7,1 ч (81) · HRV 36 · 31019 шагов · стресс 43 · BB min 46».\\n\\n*Тенденция:* 1–2 строки про последние 7/14/30 дней. Используй конкретные дельты из trends. Ищи только то, что РЕАЛЬНО важно (большие сдвиги, streak'и). Если всё ровно — так и пиши «без сдвигов». Пример: «стресс за неделю +18 % к месяцу, третий день подряд выше базы. Сон стабилен (7,3 ч за 30 дней)».\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками и календарём. Опирайся на daily_last_7 (там для каждого дня кол-во events_evening и events_late) — соотноси с сном и HRV. Пример: «3 вечера подряд встречи после 21:00 → сон стабильно <7 ч и HRV ниже среднего». Если связи не видишь — пропусти этот блок целиком.\\n\\n*Рекомендация:* ровно ОДНА строка, конкретная, на основе подмеченной связи. Пример: «не ставь встречи после 20:00 в ближайшие 3 дня — дай HRV вернуться к базе (43)». Если связи не нашлось — пропусти этот блок (лучше тишина, чем шаблонный совет).\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила анализа:\\n— Округляй: сон до десятых, всё остальное до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней по любой метрике — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % — отметь как «сильный сдвиг».\\n— Связи строй ТОЛЬКО на данных из daily_last_7 (events_evening, events_late, sleep, hrv). Не выдумывай.\\n— Никаких общих советов из учебника («больше воды», «гуляй»). Только то, что следует из ТВОИХ данных.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без списков-буллетов.\\n— НЕ пиши блок «Сегодня» — его нет в формате. Сразу после рекомендации идёт ссылка на дашборд.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}"
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1500,\n  \"system\": \"Ты — аналитик данных Алёны (сон, HRV, стресс, шаги, Body Battery + календарь встреч). Каждое утро в Telegram присылаешь короткий тезисный разбор: что произошло, почему так, тенденция, и ОДНА конкретная рекомендация на основе подмеченной связи.\\n\\nТон: спокойный, по делу, без пафоса и без коучинговых клише («важно», «не забывай», «следить за»). Обращение «ты». Никаких дисклеймеров про «не медицинский совет».\\n\\nФормат ответа СТРОГО такой (придерживайся структуры, без отсебятины):\\n\\n🌅 *Доброе утро*\\n\\n*Вчера:* одной строкой через · — сон + score, HRV, шаги, стресс, Body Battery min. Пример: «сон 7,1 ч (81) · HRV 36 · 31019 шагов · стресс 43 · BB min 46».\\n\\n*Тенденция:* 1–2 строки про последние 7/14/30 дней. Используй конкретные дельты из trends. Ищи только то, что РЕАЛЬНО важно (большие сдвиги, streak'и). Если всё ровно — так и пиши «без сдвигов». Пример: «стресс за неделю +18 % к месяцу, третий день подряд выше базы. Сон стабилен (7,3 ч за 30 дней)».\\n\\n*Что заметил:* 1–3 коротких тезиса про связи между метриками и календарём. Опирайся на daily_last_7 (там для каждого дня кол-во events_evening и events_late) — соотноси с сном и HRV. Пример: «3 вечера подряд встречи после 21:00 → сон стабильно <7 ч и HRV ниже среднего». Если связи не видишь — пропусти этот блок целиком.\\n\\n*Рекомендация:* ровно ОДНА строка, конкретная, на основе подмеченной связи. Пример: «не ставь встречи после 20:00 в ближайшие 3 дня — дай HRV вернуться к базе (43)». Если связи не нашлось — пропусти этот блок (лучше тишина, чем шаблонный совет).\\n\\n*Дашборд:* {{dashboard_url}}\\n\\nПравила анализа:\\n— Округляй: сон до десятых, всё остальное до целых. Числа в формате 7,1 (запятая).\\n— Если streak >= 3 дней по любой метрике — обязательно отметь.\\n— Если delta_vs_prev_week_pct >= 15 % — отметь как «сильный сдвиг».\\n— Связи строй ТОЛЬКО на данных из daily_last_7 (events_evening, events_late, sleep, hrv). Не выдумывай.\\n— Никаких общих советов из учебника («больше воды», «гуляй»). Только то, что следует из ТВОИХ данных.\\n— Markdown: звёздочки для *жирного*, никакого _underscore_. Без списков-буллетов кроме блока «Сегодня».\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(JSON.stringify($json)) }}\n    }\n  ]\n}",
+        "options": {}
       },
-      "id": "claude",
+      "id": "768aacb0-636e-411d-a8d2-56c39bfb36b5",
       "name": "Claude: разбор",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1120, 300],
+      "position": [
+        448,
+        112
+      ],
       "retryOnFail": true,
       "maxTries": 3,
-      "waitBetweenTries": 10000,
-      "continueOnFail": true,
+      "waitBetweenTries": 5000,
       "credentials": {
         "httpHeaderAuth": {
-          "id": "REPLACE_WITH_ANTHROPIC_CRED_ID",
+          "id": "07gFyVjTm2K0oX6V",
           "name": "Anthropic x-api-key"
         }
       },
+      "continueOnFail": true,
       "notes": "Credential: Header Auth, имя заголовка = x-api-key, значение = твой ANTHROPIC_API_KEY."
     },
     {
@@ -167,47 +184,107 @@
           "parse_mode": "Markdown"
         }
       },
-      "id": "telegram-send",
+      "id": "213a523c-b85f-4919-834c-4309688a75c3",
       "name": "Отправить в Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1340, 300],
+      "position": [
+        672,
+        112
+      ],
+      "webhookId": "4cbeeb4e-16d9-4a65-991d-ddf111c994c4",
       "credentials": {
         "telegramApi": {
-          "id": "REPLACE_WITH_TELEGRAM_CRED_ID",
+          "id": "7SDIZH0t1SUnfezT",
           "name": "Life Dashboard Bot"
         }
       }
     }
   ],
+  "pinData": {},
   "connections": {
     "Каждое утро 08:30 МСК": {
-      "main": [[{ "node": "Конфиг", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Конфиг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Конфиг": {
       "main": [
         [
-          { "node": "Тянем Garmin CSV (история)", "type": "main", "index": 0 },
-          { "node": "Тянем события из Sheets", "type": "main", "index": 0 }
+          {
+            "node": "Тянем Garmin CSV (история)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Тянем события из Sheets",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
     "Тянем Garmin CSV (история)": {
-      "main": [[{ "node": "Считаем тренды и связи", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Считаем тренды и связи",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Тянем события из Sheets": {
-      "main": [[{ "node": "Считаем тренды и связи", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Считаем тренды и связи",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Считаем тренды и связи": {
-      "main": [[{ "node": "Claude: разбор", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Claude: разбор",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Claude: разбор": {
-      "main": [[{ "node": "Отправить в Telegram", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Отправить в Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": true,
   "settings": {
     "executionOrder": "v1",
-    "timezone": "Europe/Moscow"
+    "binaryMode": "separate"
   },
-  "tags": ["life-dashboard", "telegram", "claude"]
+  "versionId": "d77539aa-0cc3-40ed-bddd-8d5e239bfcdc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "351931e00d6bbd6c8f33a66b091e072f1025e0d20dd2315e5d01a46f439fa1af"
+  },
+  "id": "5VTYhfLCS12MnJJR",
+  "tags": []
 }

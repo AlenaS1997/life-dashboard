@@ -17,6 +17,8 @@ env/
 # Данные и логи
 data/*.json
 data/*.cache
+data/*.html
+data/chrome_profile/
 reports/*.log
 
 # macOS

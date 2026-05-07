@@ -25,6 +25,17 @@
       --stress: #ff7043;
       --battery: #ffca28;
       --score: #ec407a;
+      --nutrition: #f48fb1;
+      --kcal: #ff8a65;
+      --protein: #4dd0e1;
+      --fat: #ffd54f;
+      --carbs: #ba68c8;
+      --phase-deep:  #5e35b1;
+      --phase-light: #9c88ff;
+      --phase-rem:   #4fc3f7;
+      --phase-awake: #ff7043;
+      --bedtime-color: #7986cb;
+      --wakeup-color: #ffb74d;
       --border: #2a2a2a;
       --radius: 18px;
       --radius-sm: 12px;
@@ -152,6 +163,10 @@
     .metric.steps  .accent { background: var(--steps); }
     .metric.stress .accent { background: var(--stress); }
     .metric.battery .accent { background: var(--battery); }
+    .metric.kcal    .accent { background: var(--kcal); }
+    .metric.protein .accent { background: var(--protein); }
+    .metric.fat     .accent { background: var(--fat); }
+    .metric.carbs   .accent { background: var(--carbs); }
 
     /* Цветовая индикация good/medium/bad — рамка-световой контур карточки */
     .metric.status-good { box-shadow: inset 0 0 0 1px rgba(102, 187, 106, 0.35); }
@@ -294,6 +309,134 @@
       font-weight: 700;
       font-size: 14px;
       color: var(--text);
+    }
+
+    /* Питание — те же metric-карточки в today-grid (дополнительных стилей не надо).
+       Серии в норме — компактная сетка из 4 счётчиков. */
+    .nutri-streaks {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .nutri-streak {
+      background: var(--bg-card-2);
+      border-radius: var(--radius-sm);
+      padding: 10px 8px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .nutri-streak-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .nutri-streak-count {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+    }
+    .nutri-streak-unit {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .nutri-streak.zero .nutri-streak-count { color: var(--text-muted); }
+    .nutri-no-goal {
+      color: var(--text-muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 14px 0;
+    }
+
+    /* Фазы сна — стэкбары за 14 дней */
+    .phases-wrap {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 130px;
+      padding: 0 2px;
+    }
+    .phase-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 1px;
+      min-width: 0;
+      cursor: pointer;
+    }
+    .phase-col.empty {
+      background: rgba(255,255,255,0.04);
+      border-radius: 2px;
+    }
+    .phase-seg {
+      border-radius: 1px;
+      min-height: 1px;
+    }
+    .phase-seg.deep  { background: var(--phase-deep);  }
+    .phase-seg.light { background: var(--phase-light); }
+    .phase-seg.rem   { background: var(--phase-rem);   }
+    .phase-seg.awake { background: var(--phase-awake); }
+    .phases-legend {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+    .phase-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    /* Отбой и подъём — линия за 30 дней */
+    .bedtime-chart {
+      width: 100%;
+      height: 160px;
+      display: block;
+    }
+    .bedtime-axis {
+      stroke: var(--border);
+      stroke-width: 1;
+      stroke-dasharray: 2 3;
+    }
+    .bedtime-label {
+      fill: var(--text-muted);
+      font-size: 10px;
+    }
+    .bedtime-line {
+      stroke: var(--bedtime-color);
+      stroke-width: 1.6;
+      fill: none;
+    }
+    .wakeup-line {
+      stroke: var(--wakeup-color);
+      stroke-width: 1.6;
+      fill: none;
+    }
+    .bedtime-dot { fill: var(--bedtime-color); }
+    .wakeup-dot  { fill: var(--wakeup-color); }
+    .bedtime-legend {
+      display: flex;
+      gap: 14px;
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .bedtime-legend-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
     }
 
     /* Pull-to-refresh индикатор */
@@ -552,6 +695,28 @@
     </section>
 
     <section>
+      <h2>Питание · вчера</h2>
+      <div class="today-grid" id="nutrition-grid">
+        <div class="metric wide"><div class="skeleton-bar w-30"></div><div class="skeleton-bar tall w-60" style="margin-top:12px"></div></div>
+        <div class="metric"><div class="skeleton-bar w-50"></div><div class="skeleton-bar tall w-70" style="margin-top:12px"></div></div>
+        <div class="metric"><div class="skeleton-bar w-50"></div><div class="skeleton-bar tall w-70" style="margin-top:12px"></div></div>
+        <div class="metric"><div class="skeleton-bar w-50"></div><div class="skeleton-bar tall w-70" style="margin-top:12px"></div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Серии в норме · КБЖУ</h2>
+      <div id="nutri-streaks-wrap">
+        <div class="nutri-streaks">
+          <div class="nutri-streak"><span class="nutri-streak-label">ккал</span><span class="nutri-streak-count">—</span></div>
+          <div class="nutri-streak"><span class="nutri-streak-label">белок</span><span class="nutri-streak-count">—</span></div>
+          <div class="nutri-streak"><span class="nutri-streak-label">жиры</span><span class="nutri-streak-count">—</span></div>
+          <div class="nutri-streak"><span class="nutri-streak-label">угл</span><span class="nutri-streak-count">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
       <h2>Сон · 30 дней</h2>
       <div class="heatmap" id="heatmap"></div>
       <div class="heat-legend">
@@ -564,6 +729,26 @@
           <span class="heat-cell" style="background: rgba(156,136,255,1.00)"></span>
         </span>
         много
+      </div>
+    </section>
+
+    <section>
+      <h2>Фазы сна · 14 дней</h2>
+      <div class="phases-wrap" id="phases-wrap"></div>
+      <div class="phases-legend">
+        <span><span class="phase-dot" style="background:var(--phase-deep)"></span>глубокий</span>
+        <span><span class="phase-dot" style="background:var(--phase-light)"></span>лёгкий</span>
+        <span><span class="phase-dot" style="background:var(--phase-rem)"></span>REM</span>
+        <span><span class="phase-dot" style="background:var(--phase-awake)"></span>пробуждения</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Отбой и подъём · 30 дней</h2>
+      <svg class="bedtime-chart" id="bedtime-chart" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
+      <div class="bedtime-legend">
+        <span><span class="bedtime-legend-dot" style="background:var(--bedtime-color)"></span>отбой</span>
+        <span><span class="bedtime-legend-dot" style="background:var(--wakeup-color)"></span>подъём</span>
       </div>
     </section>
 
@@ -605,6 +790,8 @@
     SHEET_ID: "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
     GARMIN_TAB: "garmin_daily",
     EVENTS_TAB: "gcal_events",
+    FATSECRET_TAB: "fatsecret_daily",
+    GOALS_TAB: "nutrition_goals",
     // true — всегда показывать demo-данные (для превью дизайна)
     FORCE_MOCK: false,
   };
@@ -677,22 +864,65 @@
     const rows = [];
     const today = new Date();
     const seed = (i) => Math.sin(i * 17.3) * 0.5 + 0.5;
-    for (let i = 6; i >= 0; i--) {
+    for (let i = 29; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const s = seed(i);
+      const totalMin = Math.round((6.5 + s * 2.5) * 60);
+      const deep  = Math.round(totalMin * (0.13 + s * 0.06));
+      const rem   = Math.round(totalMin * (0.18 + s * 0.07));
+      const awake = Math.round(totalMin * (0.04 + (1 - s) * 0.04));
+      const light = Math.max(0, totalMin - deep - rem - awake);
+      const bh = 22 + Math.round(s * 2);
+      const bm = Math.round(s * 60);
+      const wh = 6 + Math.round(s * 2);
+      const wm = Math.round((1 - s) * 60);
       rows.push({
         date: d.toISOString().slice(0, 10),
-        sleep_hours: (6.5 + s * 2.5).toFixed(2),
+        sleep_hours: (totalMin / 60).toFixed(2),
         sleep_score: Math.round(65 + s * 30),
         body_battery_max: Math.round(72 + s * 25),
         body_battery_min: Math.round(12 + s * 20),
         hrv_last_night: Math.round(38 + s * 25),
         steps: Math.round(4500 + s * 9000),
         stress_avg: Math.round(22 + (1 - s) * 30),
+        deep_sleep_min: deep,
+        light_sleep_min: light,
+        rem_sleep_min: rem,
+        awake_sleep_min: awake,
+        bedtime: `${String(bh).padStart(2, "0")}:${String(bm).padStart(2, "0")}`,
+        wakeup:  `${String(wh).padStart(2, "0")}:${String(wm).padStart(2, "0")}`,
       });
     }
     return rows;
+  }
+
+  function generateMockFatsecret() {
+    const rows = [];
+    const today = new Date();
+    const seed = (i) => Math.sin(i * 11.7) * 0.5 + 0.5;
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const s = seed(i);
+      rows.push({
+        date: d.toISOString().slice(0, 10),
+        calories_kcal: Math.round(1700 + s * 700),
+        protein_g:     Math.round(100 + s * 60),
+        fat_g:         Math.round(50 + s * 30),
+        carbs_g:       Math.round(150 + s * 100),
+        fiber_g:       0,
+        entries_count: Math.round(8 + s * 10),
+      });
+    }
+    return rows;
+  }
+
+  function generateMockGoals() {
+    return [
+      { date_set: new Date().toISOString().slice(0, 10),
+        kcal: 1800, protein_g: 130, fat_g: 60, carbs_g: 180, source: "mock" },
+    ];
   }
 
   function generateMockEvents() {
@@ -767,7 +997,7 @@
     let g = "Доброе утро";
     if (hour >= 12 && hour < 18) g = "Добрый день";
     else if (hour >= 18 || hour < 5) g = "Добрый вечер";
-    document.getElementById("greeting").textContent = `${g}, Михаил`;
+    document.getElementById("greeting").textContent = `${g}, Алёна`;
 
     const dateStr = new Date().toLocaleDateString("ru-RU", {
       weekday: "long", day: "numeric", month: "long",
@@ -1103,6 +1333,220 @@
       </li>`).join("");
   }
 
+  // ============================================================
+  // ПИТАНИЕ — карточка «Вчера» + серии в норме
+  // ============================================================
+  // Возвращает 'good' | 'warn' | 'bad' по отклонению от цели в %.
+  function nutritionStatus(value, goal) {
+    const v = num(value), g = num(goal);
+    if (!isFinite(v) || !isFinite(g) || g <= 0) return null;
+    const delta = Math.abs(v - g) / g * 100;
+    if (delta <= 10) return "good";
+    if (delta <= 20) return "warn";
+    return "bad";
+  }
+
+  // Сколько подряд дней значение в коридоре ±15 % от цели (с конца истории).
+  function nutritionStreak(rows, key, goal) {
+    if (!isFinite(num(goal)) || num(goal) <= 0) return null;
+    const g = num(goal);
+    let count = 0;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const v = num(rows[i][key]);
+      if (!isFinite(v)) break;
+      if (Math.abs(v - g) / g * 100 <= 15) count++;
+      else break;
+    }
+    return count;
+  }
+
+  function renderNutrition(latestFS, goal) {
+    const grid = document.getElementById("nutrition-grid");
+    if (!grid) return;
+    if (!latestFS) {
+      grid.innerHTML = '<div class="empty" style="grid-column:span 2;color:var(--text-muted);font-size:13px;text-align:center;padding:14px 0">Нет данных за вчера</div>';
+      return;
+    }
+    const sub = (val, target, unit) => {
+      if (!isFinite(num(target)) || num(target) <= 0) return "";
+      const pct = Math.round((num(val) - num(target)) / num(target) * 100);
+      const sign = pct >= 0 ? "+" : "";
+      return `vs цель ${sign}${pct}%`;
+    };
+    grid.innerHTML = [
+      metricCard({
+        label: "Калории", value: formatNumber(latestFS.calories_kcal), unit: "ккал",
+        sub: goal ? sub(latestFS.calories_kcal, goal.kcal) : `за день · ${latestFS.entries_count || 0} зап.`,
+        accent: "kcal", wide: true,
+        status: goal ? nutritionStatus(latestFS.calories_kcal, goal.kcal) : null,
+      }),
+      metricCard({
+        label: "Белок", value: latestFS.protein_g, unit: "г",
+        sub: goal ? sub(latestFS.protein_g, goal.protein_g) : "",
+        accent: "protein",
+        status: goal ? nutritionStatus(latestFS.protein_g, goal.protein_g) : null,
+      }),
+      metricCard({
+        label: "Жиры", value: latestFS.fat_g, unit: "г",
+        sub: goal ? sub(latestFS.fat_g, goal.fat_g) : "",
+        accent: "fat",
+        status: goal ? nutritionStatus(latestFS.fat_g, goal.fat_g) : null,
+      }),
+      metricCard({
+        label: "Углеводы", value: latestFS.carbs_g, unit: "г",
+        sub: goal ? sub(latestFS.carbs_g, goal.carbs_g) : "",
+        accent: "carbs",
+        status: goal ? nutritionStatus(latestFS.carbs_g, goal.carbs_g) : null,
+      }),
+    ].join("");
+  }
+
+  function renderNutritionStreaks(fsRows, goal) {
+    const wrap = document.getElementById("nutri-streaks-wrap");
+    if (!wrap) return;
+    if (!goal) {
+      wrap.innerHTML = '<div class="nutri-no-goal">Цель КБЖУ не задана. В Telegram-боте: <b>/goal kcal=1800 protein=120 fat=60 carbs=180</b></div>';
+      return;
+    }
+    if (!fsRows.length) {
+      wrap.innerHTML = '<div class="nutri-no-goal">Нет истории по питанию</div>';
+      return;
+    }
+    const items = [
+      { key: "calories_kcal", target: goal.kcal,      label: "ккал" },
+      { key: "protein_g",     target: goal.protein_g, label: "белок" },
+      { key: "fat_g",         target: goal.fat_g,     label: "жиры" },
+      { key: "carbs_g",       target: goal.carbs_g,   label: "угл" },
+    ];
+    wrap.innerHTML = '<div class="nutri-streaks">' + items.map((it) => {
+      const c = nutritionStreak(fsRows, it.key, it.target);
+      const cls = (c === null || c === 0) ? "nutri-streak zero" : "nutri-streak";
+      const value = c === null ? "—" : c;
+      return `
+        <div class="${cls}">
+          <span class="nutri-streak-label">${it.label}</span>
+          <span class="nutri-streak-count">${value}</span>
+          <span class="nutri-streak-unit">дн. в норме</span>
+        </div>`;
+    }).join("") + '</div>';
+  }
+
+  // ============================================================
+  // ФАЗЫ СНА — стэкбары за 14 дней
+  // ============================================================
+  function renderSleepPhases(rows) {
+    const wrap = document.getElementById("phases-wrap");
+    if (!wrap) return;
+    const last14 = rows.slice(-14);
+    if (!last14.length) {
+      wrap.innerHTML = '<div class="empty" style="color:var(--text-muted);font-size:13px;width:100%;text-align:center">Нет данных</div>';
+      return;
+    }
+    // Заполняем слева пустыми, чтобы всегда было ровно 14 колонок.
+    const filled = new Array(Math.max(0, 14 - last14.length)).fill(null).concat(last14);
+    // Максимум суммы фаз — для нормализации высоты колонок.
+    const totals = filled.map((r) => {
+      if (!r) return 0;
+      return num(r.deep_sleep_min) + num(r.light_sleep_min) + num(r.rem_sleep_min) + num(r.awake_sleep_min);
+    }).map((v) => isFinite(v) ? v : 0);
+    const maxTotal = Math.max(...totals, 1);
+
+    wrap.innerHTML = filled.map((r, i) => {
+      if (!r) return '<div class="phase-col empty"></div>';
+      const deep  = num(r.deep_sleep_min)  || 0;
+      const light = num(r.light_sleep_min) || 0;
+      const rem   = num(r.rem_sleep_min)   || 0;
+      const awake = num(r.awake_sleep_min) || 0;
+      const total = deep + light + rem + awake;
+      if (total <= 0) return '<div class="phase-col empty"></div>';
+      // Высота колонки в % от max
+      const colHeight = Math.round((total / maxTotal) * 100);
+      const fmt = (m) => {
+        const h = Math.floor(m / 60), mm = Math.round(m % 60);
+        return h > 0 ? `${h} ч ${mm} мин` : `${mm} мин`;
+      };
+      const tip = `${escapeHtml(r.date || "")}\nГлубокий: ${fmt(deep)}\nЛёгкий: ${fmt(light)}\nREM: ${fmt(rem)}\nПробуждения: ${fmt(awake)}`;
+      // Сегменты от низа вверх: deep → light → rem → awake (column-reverse в CSS)
+      return `
+        <div class="phase-col" style="height:${colHeight}%" title="${tip}">
+          <div class="phase-seg deep"  style="height:${(deep/total*100).toFixed(1)}%"></div>
+          <div class="phase-seg light" style="height:${(light/total*100).toFixed(1)}%"></div>
+          <div class="phase-seg rem"   style="height:${(rem/total*100).toFixed(1)}%"></div>
+          <div class="phase-seg awake" style="height:${(awake/total*100).toFixed(1)}%"></div>
+        </div>`;
+    }).join("");
+  }
+
+  // ============================================================
+  // ОТБОЙ И ПОДЪЁМ — линия за 30 дней
+  // ============================================================
+  // bedtime/wakeup приходят как "HH:MM" в МСК. Маппим в часы [0..24).
+  // Для отбоя считаем «ночное» представление: время после полуночи (0..6) → 24..30,
+  // чтобы линия не прыгала с 23:30 на 00:30. Подъём всегда в 4..12.
+  function timeToHours(s, isBedtime) {
+    if (!s) return null;
+    const m = String(s).match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return null;
+    let h = parseInt(m[1], 10) + parseInt(m[2], 10) / 60;
+    if (!isFinite(h)) return null;
+    if (isBedtime && h < 12) h += 24; // 01:30 → 25.5 (ночь после полуночи)
+    return h;
+  }
+
+  function renderBedtimeChart(rows) {
+    const svg = document.getElementById("bedtime-chart");
+    if (!svg) return;
+    const last30 = rows.slice(-30);
+    if (!last30.length) {
+      svg.innerHTML = '<text x="300" y="80" text-anchor="middle" fill="#5a5a5a" font-size="12">Нет данных</text>';
+      return;
+    }
+
+    const W = 600, H = 160, padX = 30, padTop = 10, padBot = 24;
+    const innerW = W - padX * 2;
+    const innerH = H - padTop - padBot;
+
+    // Y-диапазон: от 4:00 (4) до 28:00 (4 утра след. дня = 24+4)
+    const yMin = 4, yMax = 28;
+    const yToPx = (h) => padTop + ((yMax - h) / (yMax - yMin)) * innerH;
+
+    // Y-ось: горизонтальные пунктиры на ключевых часах
+    const ticks = [
+      { y: 6,  l: "06:00" },
+      { y: 12, l: "12:00" },
+      { y: 22, l: "22:00" },
+      { y: 26, l: "02:00" },
+    ];
+    const axisLines = ticks.map((t) => `
+      <line class="bedtime-axis" x1="${padX}" y1="${yToPx(t.y)}" x2="${W - padX}" y2="${yToPx(t.y)}" />
+      <text class="bedtime-label" x="${padX - 4}" y="${yToPx(t.y) + 3}" text-anchor="end">${t.l}</text>`).join("");
+
+    const n = last30.length;
+    const xToPx = (i) => padX + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+
+    // Точки и линии
+    const bedPoints = [], wakePoints = [];
+    last30.forEach((r, i) => {
+      const bh = timeToHours(r.bedtime, true);
+      const wh = timeToHours(r.wakeup, false);
+      if (bh != null) bedPoints.push({ x: xToPx(i), y: yToPx(bh), date: r.date, label: r.bedtime });
+      if (wh != null) wakePoints.push({ x: xToPx(i), y: yToPx(wh), date: r.date, label: r.wakeup });
+    });
+
+    const polyline = (pts, cls) => pts.length >= 2
+      ? `<polyline class="${cls}" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" />` : "";
+
+    const dots = (pts, cls) => pts.map((p) =>
+      `<circle class="${cls}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.4"><title>${escapeHtml(p.date)}: ${escapeHtml(p.label)}</title></circle>`
+    ).join("");
+
+    svg.innerHTML = axisLines
+      + polyline(bedPoints,  "bedtime-line")
+      + polyline(wakePoints, "wakeup-line")
+      + dots(bedPoints,  "bedtime-dot")
+      + dots(wakePoints, "wakeup-dot");
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -1135,6 +1579,8 @@
 
     let garminRows = [];
     let eventRows = [];
+    let fsRows = [];
+    let goalsRows = [];
     let usingMock = CONFIG.FORCE_MOCK;
     let sheetClosed = false;
     let usingCache = false;
@@ -1152,6 +1598,8 @@
         if (cached && cached.garminRows && cached.garminRows.length) {
           garminRows = cached.garminRows;
           eventRows = cached.eventRows || [];
+          fsRows    = cached.fsRows || [];
+          goalsRows = cached.goalsRows || [];
           usingCache = true;
         } else {
           usingMock = true;
@@ -1159,18 +1607,22 @@
       }
 
       if (!usingMock && !usingCache) {
-        try {
-          eventRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.EVENTS_TAB);
-        } catch (e) {
-          console.warn("Events CSV недоступен:", e.message);
-          // не критично, пропускаем
-        }
+        try { eventRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.EVENTS_TAB); }
+        catch (e) { console.warn("Events CSV недоступен:", e.message); }
+
+        try { fsRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.FATSECRET_TAB); }
+        catch (e) { console.warn("FatSecret CSV недоступен:", e.message); }
+
+        try { goalsRows = await fetchCsv(CONFIG.SHEET_ID, CONFIG.GOALS_TAB); }
+        catch (e) { console.warn("Goals CSV недоступен:", e.message); }
       }
     }
 
     if (usingMock) {
       garminRows = generateMockGarmin();
       eventRows = [];
+      fsRows = generateMockFatsecret();
+      goalsRows = generateMockGoals();
     }
 
     // Баннер: разные сценарии
@@ -1199,17 +1651,25 @@
 
     // сортируем по дате на всякий случай
     garminRows.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    fsRows.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    goalsRows.sort((a, b) => (a.date_set || "").localeCompare(b.date_set || ""));
     const latest = garminRows[garminRows.length - 1];
+    const latestFS = fsRows[fsRows.length - 1] || null;
+    const latestGoal = goalsRows[goalsRows.length - 1] || null;
 
     renderToday(latest);
     renderTrends(garminRows);
+    renderNutrition(latestFS, latestGoal);
+    renderNutritionStreaks(fsRows, latestGoal);
     renderHeatmap(garminRows);
+    renderSleepPhases(garminRows);
+    renderBedtimeChart(garminRows);
     renderScore(latest);
     renderStreaks(garminRows);
 
     // Сохраняем в кэш только реальные данные (не mock!)
     if (!usingMock && !usingCache) {
-      saveCache({ garminRows, eventRows });
+      saveCache({ garminRows, eventRows, fsRows, goalsRows });
     }
 
     if (usingCache) {
