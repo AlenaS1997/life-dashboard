@@ -11,7 +11,7 @@
 // При выходе новой версии меняй CACHE_NAME — старые кэши будут удалены при
 // активации нового SW.
 
-const CACHE_NAME = "life-dashboard-v7";
+const CACHE_NAME = "life-dashboard-v8";
 const CORE_ASSETS = [
   "./",
   "./index.html",

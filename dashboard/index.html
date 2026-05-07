@@ -370,38 +370,46 @@
       padding: 4px 0;
     }
 
-    /* Серии в норме — компактная сетка из 4 счётчиков. */
-    .nutri-streaks {
+    /* Недельный трекер питания — 7 ячеек.
+       Зелёная — никаких превышений, красная — есть превышение >+7% хотя
+       бы по одному из КБЖУ. Серая — нет данных (FS не записал). */
+    .week-tracker {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
     }
-    .nutri-streak {
-      background: var(--bg-card-2);
-      border-radius: var(--radius-sm);
-      padding: 10px 8px;
-      text-align: center;
+    .week-cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 10px;
       display: flex;
       flex-direction: column;
+      align-items: center;
+      justify-content: center;
       gap: 2px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      cursor: default;
     }
-    .nutri-streak-label {
+    .week-cell.ok {
+      background: rgba(102, 187, 106, 0.18);
+      color: #8fdc92;
+    }
+    .week-cell.over {
+      background: rgba(255, 112, 67, 0.22);
+      color: #ffa78c;
+    }
+    .week-day {
       font-size: 10px;
-      color: var(--text-dim);
+      font-weight: 600;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      opacity: 0.85;
     }
-    .nutri-streak-count {
-      font-size: 22px;
+    .week-num {
+      font-size: 16px;
       font-weight: 700;
-      color: var(--text);
       line-height: 1;
     }
-    .nutri-streak-unit {
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-    .nutri-streak.zero .nutri-streak-count { color: var(--text-muted); }
     .nutri-no-goal {
       color: var(--text-muted);
       font-size: 12px;
@@ -760,13 +768,12 @@
     </section>
 
     <section>
-      <h2>Серии в норме · КБЖУ</h2>
-      <div id="nutri-streaks-wrap">
-        <div class="nutri-streaks">
-          <div class="nutri-streak"><span class="nutri-streak-label">ккал</span><span class="nutri-streak-count">—</span></div>
-          <div class="nutri-streak"><span class="nutri-streak-label">белок</span><span class="nutri-streak-count">—</span></div>
-          <div class="nutri-streak"><span class="nutri-streak-label">жиры</span><span class="nutri-streak-count">—</span></div>
-          <div class="nutri-streak"><span class="nutri-streak-label">угл</span><span class="nutri-streak-count">—</span></div>
+      <h2>Неделя · превышения нормы</h2>
+      <div id="nutri-week-wrap">
+        <div class="week-tracker">
+          <div class="week-cell"></div><div class="week-cell"></div><div class="week-cell"></div>
+          <div class="week-cell"></div><div class="week-cell"></div><div class="week-cell"></div>
+          <div class="week-cell"></div>
         </div>
       </div>
     </section>
@@ -1420,20 +1427,28 @@
     return count;
   }
 
-  // Универсальный геттер FS-полей — на случай если в Sheets шапка
-  // другая (kcal вместо calories_kcal и т.п.).
+  // Универсальный геттер FS-полей — case-insensitive + trim, плюс
+  // алиасы на случай если в Sheets шапка другая.
   function getFsField(row, key) {
     if (!row) return undefined;
     const aliases = {
-      calories_kcal: ["calories_kcal", "kcal", "calories", "ккал"],
-      protein_g:     ["protein_g", "protein", "белок", "белки"],
-      fat_g:         ["fat_g", "fat", "жиры", "жир"],
-      carbs_g:       ["carbs_g", "carbs", "carb", "углеводы", "угл"],
-      fiber_g:       ["fiber_g", "fiber", "клетчатка"],
-      entries_count: ["entries_count", "entries", "записей"],
+      calories_kcal: ["calories_kcal", "calories", "calorie", "kcal", "kcals", "cal", "cals", "ккал", "калории"],
+      protein_g:     ["protein_g", "protein", "proteins", "белок", "белки"],
+      fat_g:         ["fat_g", "fat", "fats", "жиры", "жир"],
+      carbs_g:       ["carbs_g", "carbs", "carb", "carbohydrates", "carbohyrates", "углеводы", "угл"],
+      fiber_g:       ["fiber_g", "fiber", "fibre", "клетчатка"],
+      entries_count: ["entries_count", "entries", "записей", "items"],
     };
+    // Нормализуем все ключи строки: lower-case + trim, чтобы поймать
+    // " Calories ", "kcal " и т.п.
+    const lc = {};
+    for (const k of Object.keys(row)) {
+      const norm = String(k).trim().toLowerCase();
+      if (lc[norm] === undefined) lc[norm] = row[k];
+    }
     for (const k of (aliases[key] || [key])) {
-      if (row[k] !== undefined && row[k] !== "") return row[k];
+      const v = lc[k.toLowerCase()];
+      if (v !== undefined && v !== "" && v !== "—") return v;
     }
     return undefined;
   }
@@ -1463,11 +1478,16 @@
     const fatStatus     = goal ? (nutritionStatus(fat, goal.fat_g) || "")       : "";
     const carbsStatus   = goal ? (nutritionStatus(carbs, goal.carbs_g) || "")   : "";
 
+    const goalLine = goal
+      ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Цель: ${goal.kcal} ккал · Б ${goal.protein_g} · Ж ${goal.fat_g} · У ${goal.carbs_g}</div>`
+      : "";
+
     block.innerHTML = `
+      ${goalLine}
       <div class="nutri-line">
         <span class="nutri-kcal-value ${kcalStatus ? "status-" + kcalStatus : ""}">${fmt(kcal)}</span>
         <span class="nutri-kcal-unit">ккал</span>
-        ${goal ? `<span class="nutri-kcal-vs">vs цель ${vsPct(kcal, goal.kcal)}</span>` : ""}
+        ${goal ? `<span class="nutri-kcal-vs">${vsPct(kcal, goal.kcal)}</span>` : ""}
       </div>
       <div class="nutri-macros">
         <span class="nutri-macro ${proteinStatus ? "status-" + proteinStatus : ""}"><b>Б</b>${fmt(protein)}${goal ? ` <span style="color:var(--text-muted);font-weight:400">(${vsPct(protein, goal.protein_g)})</span>` : ""}</span>
@@ -1476,37 +1496,74 @@
       </div>`;
   }
 
-  function renderNutritionStreaks(fsRows, goal) {
-    const wrap = document.getElementById("nutri-streaks-wrap");
+  // Недельный трекер: 7 ячеек подряд за последние 7 дней.
+  // Красная ячейка — день с ПРЕВЫШЕНИЕМ нормы хотя бы по одному из
+  // КБЖУ (>+7 % от цели). Недобор не считается проблемой.
+  function renderNutritionWeekTracker(fsRows, goal) {
+    const wrap = document.getElementById("nutri-week-wrap");
     if (!wrap) return;
-    if (!fsRows.length) {
-      wrap.innerHTML = '<div class="nutri-no-goal">Нет истории по питанию</div>';
-      return;
-    }
     if (!goal) {
       wrap.innerHTML = '<div class="nutri-no-goal">Цель КБЖУ не задана. В Telegram-боте: <b>/goal kcal=2190 protein=190 fat=70 carbs=200</b></div>';
       return;
     }
-    const items = [
-      { key: "calories_kcal", target: goal.kcal,      label: "ккал" },
-      { key: "protein_g",     target: goal.protein_g, label: "белок" },
-      { key: "fat_g",         target: goal.fat_g,     label: "жиры" },
-      { key: "carbs_g",       target: goal.carbs_g,   label: "угл" },
-    ];
+
+    // Список последних 7 дат (от старой к новой), с привязкой к FS-записям.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const fsByDate = {};
+    for (const r of fsRows) if (r.date) fsByDate[r.date] = r;
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const iso = d.toISOString().slice(0, 10);
+      days.push({
+        iso,
+        d,
+        weekday: d.toLocaleDateString("ru-RU", { weekday: "short" }).toLowerCase(),
+        num: d.getDate(),
+        fs: fsByDate[iso] || null,
+      });
+    }
+
+    const overshoot = (val, target) => {
+      if (!isFinite(num(target)) || num(target) <= 0 || !isFinite(val)) return false;
+      return (val - num(target)) / num(target) * 100 > 7;
+    };
+
+    const cells = days.map((day) => {
+      const fs = day.fs;
+      let cls = "week-cell";
+      let title = `${day.iso}: нет данных`;
+      if (fs) {
+        const k = num(getFsField(fs, "calories_kcal"));
+        const p = num(getFsField(fs, "protein_g"));
+        const f = num(getFsField(fs, "fat_g"));
+        const c = num(getFsField(fs, "carbs_g"));
+        const overs = [];
+        if (overshoot(k, goal.kcal))      overs.push(`ккал +${Math.round((k-goal.kcal)/goal.kcal*100)}%`);
+        if (overshoot(p, goal.protein_g)) overs.push(`Б +${Math.round((p-goal.protein_g)/goal.protein_g*100)}%`);
+        if (overshoot(f, goal.fat_g))     overs.push(`Ж +${Math.round((f-goal.fat_g)/goal.fat_g*100)}%`);
+        if (overshoot(c, goal.carbs_g))   overs.push(`У +${Math.round((c-goal.carbs_g)/goal.carbs_g*100)}%`);
+        if (overs.length) {
+          cls += " over";
+          title = `${day.iso}: превышение — ${overs.join(", ")}`;
+        } else {
+          cls += " ok";
+          title = `${day.iso}: в норме (ккал ${Math.round(k||0)}, Б ${Math.round(p||0)}, Ж ${Math.round(f||0)}, У ${Math.round(c||0)})`;
+        }
+      }
+      return `
+        <div class="${cls}" title="${escapeHtml(title)}">
+          <span class="week-day">${escapeHtml(day.weekday)}</span>
+          <span class="week-num">${day.num}</span>
+        </div>`;
+    }).join("");
+
     const goalLine = `Цель: ${goal.kcal} ккал · Б ${goal.protein_g} · Ж ${goal.fat_g} · У ${goal.carbs_g}`;
     wrap.innerHTML =
       `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${goalLine}</div>` +
-      '<div class="nutri-streaks">' + items.map((it) => {
-        const c = nutritionStreak(fsRows, it.key, it.target);
-        const cls = (c === null || c === 0) ? "nutri-streak zero" : "nutri-streak";
-        const value = c === null ? "—" : c;
-        return `
-          <div class="${cls}">
-            <span class="nutri-streak-label">${it.label}</span>
-            <span class="nutri-streak-count">${value}</span>
-            <span class="nutri-streak-unit">дн. в норме</span>
-          </div>`;
-      }).join("") + '</div>';
+      `<div class="week-tracker">${cells}</div>`;
   }
 
   // ============================================================
@@ -1752,7 +1809,7 @@
     renderToday(latest);
     renderTrends(garminRows);
     renderNutrition(latestFS, latestGoal);
-    renderNutritionStreaks(fsRows, latestGoal);
+    renderNutritionWeekTracker(fsRows, latestGoal);
     renderHeatmap(garminRows);
     renderSleepPhases(garminRows);
     renderBedtimeChart(garminRows);
