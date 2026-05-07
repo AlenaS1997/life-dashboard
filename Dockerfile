@@ -18,15 +18,17 @@
 
 FROM n8nio/n8n:latest
 
+# Railway монтирует Volume с владельцем root и mode 700, поэтому стандартный
+# запуск n8n под пользователем `node` падает с EACCES на /data.
+# Решение — запустить n8n под root. Под root доступ на Volume гарантирован,
+# никакие apk add / chown / switch-user не нужны.
 USER root
 
-# n8n image alpine-based, su-exec нужен для запуска n8n под пользователем node
-# после того как мы (под root) сделали chown на Volume.
-RUN apk add --no-cache su-exec
+# Подменяем entrypoint: создаём папку Volume и сразу запускаем n8n под root.
+RUN printf '#!/bin/sh\nset -e\nmkdir -p "${N8N_USER_FOLDER:-/data}"\nexec n8n "$@"\n' > /docker-entrypoint-fix.sh && \
+    chmod +x /docker-entrypoint-fix.sh
 
-# Создаём entrypoint-скрипт. Делаем это в build time (а не в runtime),
-# потому что Volume монтируется только при старте контейнера.
-RUN printf '#!/bin/sh\nset -e\nmkdir -p "${N8N_USER_FOLDER:-/home/node/.n8n}"\nchown -R node:node "${N8N_USER_FOLDER:-/home/node/.n8n}"\nexec su-exec node n8n "$@"\n' > /usr/local/bin/fix-perms-and-start.sh && \
-    chmod +x /usr/local/bin/fix-perms-and-start.sh
+# Глушим warning n8n про запуск под root: для нашего homelab-кейса это норма.
+ENV N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false
 
-ENTRYPOINT ["/usr/local/bin/fix-perms-and-start.sh"]
+ENTRYPOINT ["/docker-entrypoint-fix.sh"]
