@@ -276,8 +276,12 @@ DEFAULT_HEADERS = [
 ]
 
 
-def write_to_sheet(data: dict, sheet_id: str, worksheet_name: str, sa_path: str) -> None:
-    """Пишет строку в Google Sheets. Идемпотентно: не дублирует дату."""
+def write_to_sheet(data: dict, sheet_id: str, worksheet_name: str, sa_path: str, overwrite: bool = False) -> None:
+    """Пишет строку в Google Sheets.
+    overwrite=False — не дублирует существующую дату (идемпотентно).
+    overwrite=True  — перезаписывает строку с такой же датой
+    (нужно при бэкфилле после расширения схемы — например, добавление фаз сна
+    к старым строкам)."""
     log.info(f"Открываю Google Sheets (worksheet='{worksheet_name}')...")
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -320,15 +324,23 @@ def write_to_sheet(data: dict, sheet_id: str, worksheet_name: str, sa_path: str)
     if missing_in_data:
         log.warning(f"Заголовки без значений (будут пустыми): {missing_in_data}")
 
-    # Идемпотентность: если дата уже записана — не дублируем
+    # Идемпотентность / overwrite: если дата уже записана — либо пропускаем,
+    # либо перезаписываем существующую строку.
     all_dates = ws.col_values(1)
-    if str(data.get("date", "")) in all_dates[1:]:
-        log.warning(f"Строка за {data['date']} уже есть в таблице — пропускаю.")
-        return
-
+    target_date = str(data.get("date", ""))
     row = [data.get(h, "") for h in existing_headers]
-    ws.append_row(row, value_input_option="USER_ENTERED")
-    log.info(f"✅ Записана строка: {dict(zip(existing_headers, row))}")
+
+    if target_date in all_dates[1:]:
+        if not overwrite:
+            log.warning(f"Строка за {target_date} уже есть — пропускаю (используй --overwrite чтобы перезаписать).")
+            return
+        idx = all_dates.index(target_date) + 1  # 1-based, +1 учитывает шапку (col_values возвращает с header'ом)
+        last_col_letter = chr(ord("A") + len(existing_headers) - 1) if len(existing_headers) <= 26 else "Z"
+        ws.update(f"A{idx}:{last_col_letter}{idx}", [row], value_input_option="USER_ENTERED")
+        log.info(f"♻️ Перезаписана строка за {target_date}: {dict(zip(existing_headers, row))}")
+    else:
+        ws.append_row(row, value_input_option="USER_ENTERED")
+        log.info(f"✅ Записана строка: {dict(zip(existing_headers, row))}")
 
 
 def main() -> int:
@@ -336,6 +348,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Не писать в Sheets")
     parser.add_argument("--date", help="Дата YYYY-MM-DD (по умолчанию — вчера). С --days это последняя дата диапазона.")
     parser.add_argument("--days", type=int, default=1, help="Сколько дней подряд бэкфилить, заканчивая --date (по умолчанию 1).")
+    parser.add_argument("--overwrite", action="store_true", help="Перезаписать существующие строки (нужно при бэкфилле после расширения схемы).")
     args = parser.parse_args()
 
     if args.days < 1:
@@ -385,7 +398,7 @@ def main() -> int:
                 if args.dry_run:
                     log.info("DRY RUN — в Sheets не пишем.")
                 else:
-                    write_to_sheet(data, sheet_id, worksheet, str(sa_abs))
+                    write_to_sheet(data, sheet_id, worksheet, str(sa_abs), overwrite=args.overwrite)
                 ok += 1
             except Exception as e:
                 log.exception(f"Ошибка на дате {target_date}: {e}")

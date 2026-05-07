@@ -198,7 +198,8 @@
       line-height: 1;
     }
 
-    /* Heatmap сна (30 дней) — компактный, с числом часов внутри */
+    /* Heatmap сна (30 дней) — компактный, с числом часов внутри.
+       Цвет по правилу: ≥8 ч — зелёный, 7..8 — жёлтый, <7 — красный. */
     .heatmap {
       display: grid;
       grid-template-columns: repeat(10, 1fr);
@@ -208,7 +209,7 @@
       aspect-ratio: auto;
       height: 24px;
       border-radius: 4px;
-      background: rgba(156, 136, 255, 0.10);
+      background: rgba(255, 255, 255, 0.04);
       position: relative;
       display: flex;
       align-items: center;
@@ -218,6 +219,9 @@
       color: rgba(255, 255, 255, 0.85);
       font-feature-settings: "tnum" 1;
     }
+    .heat-cell.good { background: rgba(102, 187, 106, 0.30); color: #c8e6c9; }
+    .heat-cell.warn { background: rgba(255, 202, 40, 0.28);  color: #ffe082; }
+    .heat-cell.bad  { background: rgba(255, 112, 67, 0.30);  color: #ffccbc; }
     .heat-cell.empty {
       background: rgba(255, 255, 255, 0.04);
       color: transparent;
@@ -781,16 +785,10 @@
     <section>
       <h2>Сон · 30 дней</h2>
       <div class="heatmap" id="heatmap"></div>
-      <div class="heat-legend">
-        мало
-        <span class="heat-legend-cells">
-          <span class="heat-cell" style="background: rgba(156,136,255,0.10)"></span>
-          <span class="heat-cell" style="background: rgba(156,136,255,0.30)"></span>
-          <span class="heat-cell" style="background: rgba(156,136,255,0.55)"></span>
-          <span class="heat-cell" style="background: rgba(156,136,255,0.80)"></span>
-          <span class="heat-cell" style="background: rgba(156,136,255,1.00)"></span>
-        </span>
-        много
+      <div class="heat-legend" style="justify-content:flex-start;gap:14px">
+        <span><span class="heat-cell good" style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> ≥ 8 ч</span>
+        <span><span class="heat-cell warn" style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> 7–8 ч</span>
+        <span><span class="heat-cell bad"  style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> &lt; 7 ч</span>
       </div>
     </section>
 
@@ -1256,12 +1254,13 @@
       if (!isFinite(h) || h <= 0) {
         return `<div class="heat-cell empty" title="${escapeHtml(r.date || "")}: нет данных"></div>`;
       }
-      // Маппим 4..9 ч → opacity 0.20..1.00.
-      const norm = Math.max(0, Math.min(1, (h - 4) / 5));
-      const alpha = 0.20 + norm * 0.80;
+      // ≥8 ч — зелёный, 7..8 — жёлтый, <7 — красный.
+      let cls = "bad";
+      if (h >= 8) cls = "good";
+      else if (h >= 7) cls = "warn";
       const tip = `${escapeHtml(r.date || "")}: ${h.toFixed(1).replace(".", ",")} ч`;
       const txt = h.toFixed(1).replace(".", ",");
-      return `<div class="heat-cell" style="background: rgba(156,136,255,${alpha.toFixed(2)})" title="${tip}">${txt}</div>`;
+      return `<div class="heat-cell ${cls}" title="${tip}">${txt}</div>`;
     }).join("");
   }
 
@@ -1460,10 +1459,14 @@
       block.innerHTML = '<div class="nutri-empty">Нет данных за вчера</div>';
       return;
     }
-    const kcal    = num(getFsField(latestFS, "calories_kcal"));
+    let kcal      = num(getFsField(latestFS, "calories_kcal"));
     const protein = num(getFsField(latestFS, "protein_g"));
     const fat     = num(getFsField(latestFS, "fat_g"));
     const carbs   = num(getFsField(latestFS, "carbs_g"));
+    // Atwater-fallback: если в Sheets ккал пусты, но есть БЖУ — считаем сами.
+    if (!isFinite(kcal) && isFinite(protein) && isFinite(fat) && isFinite(carbs)) {
+      kcal = Math.round(protein * 4 + fat * 9 + carbs * 4);
+    }
 
     const vsPct = (val, target) => {
       if (!isFinite(num(target)) || num(target) <= 0 || !isFinite(val)) return "";
@@ -1496,9 +1499,19 @@
       </div>`;
   }
 
+  // Дата в локальной TZ браузера в формате YYYY-MM-DD (НЕ через
+  // toISOString — он сдвигает в UTC и в ночные часы МСК показывает не тот день).
+  function isoLocal(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+
   // Недельный трекер: 7 ячеек подряд за последние 7 дней.
   // Красная ячейка — день с ПРЕВЫШЕНИЕМ нормы хотя бы по одному из
   // КБЖУ (>+7 % от цели). Недобор не считается проблемой.
+  // По клику/тапу — показывает детали дня под сеткой.
   function renderNutritionWeekTracker(fsRows, goal) {
     const wrap = document.getElementById("nutri-week-wrap");
     if (!wrap) return;
@@ -1507,19 +1520,18 @@
       return;
     }
 
-    // Список последних 7 дат (от старой к новой), с привязкой к FS-записям.
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const fsByDate = {};
     for (const r of fsRows) if (r.date) fsByDate[r.date] = r;
+
     const days = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
+      const iso = isoLocal(d);
       days.push({
         iso,
-        d,
         weekday: d.toLocaleDateString("ru-RU", { weekday: "short" }).toLowerCase(),
         num: d.getDate(),
         fs: fsByDate[iso] || null,
@@ -1530,31 +1542,37 @@
       if (!isFinite(num(target)) || num(target) <= 0 || !isFinite(val)) return false;
       return (val - num(target)) / num(target) * 100 > 7;
     };
+    const pct = (v, g) => Math.round((v - g) / g * 100);
 
-    const cells = days.map((day) => {
+    const cellsData = days.map((day) => {
       const fs = day.fs;
-      let cls = "week-cell";
-      let title = `${day.iso}: нет данных`;
-      if (fs) {
-        const k = num(getFsField(fs, "calories_kcal"));
-        const p = num(getFsField(fs, "protein_g"));
-        const f = num(getFsField(fs, "fat_g"));
-        const c = num(getFsField(fs, "carbs_g"));
-        const overs = [];
-        if (overshoot(k, goal.kcal))      overs.push(`ккал +${Math.round((k-goal.kcal)/goal.kcal*100)}%`);
-        if (overshoot(p, goal.protein_g)) overs.push(`Б +${Math.round((p-goal.protein_g)/goal.protein_g*100)}%`);
-        if (overshoot(f, goal.fat_g))     overs.push(`Ж +${Math.round((f-goal.fat_g)/goal.fat_g*100)}%`);
-        if (overshoot(c, goal.carbs_g))   overs.push(`У +${Math.round((c-goal.carbs_g)/goal.carbs_g*100)}%`);
-        if (overs.length) {
-          cls += " over";
-          title = `${day.iso}: превышение — ${overs.join(", ")}`;
-        } else {
-          cls += " ok";
-          title = `${day.iso}: в норме (ккал ${Math.round(k||0)}, Б ${Math.round(p||0)}, Ж ${Math.round(f||0)}, У ${Math.round(c||0)})`;
-        }
+      const obj = { ...day, status: "empty", overs: [], k: null, p: null, f: null, c: null };
+      if (!fs) return obj;
+
+      let k = num(getFsField(fs, "calories_kcal"));
+      const p = num(getFsField(fs, "protein_g"));
+      const f = num(getFsField(fs, "fat_g"));
+      const c = num(getFsField(fs, "carbs_g"));
+      // Atwater-fallback для дня без явных ккал.
+      if (!isFinite(k) && isFinite(p) && isFinite(f) && isFinite(c)) {
+        k = Math.round(p * 4 + f * 9 + c * 4);
       }
+      obj.k = k; obj.p = p; obj.f = f; obj.c = c;
+
+      const overs = [];
+      if (overshoot(k, goal.kcal))      overs.push(`ккал +${pct(k, goal.kcal)}%`);
+      if (overshoot(p, goal.protein_g)) overs.push(`Б +${pct(p, goal.protein_g)}%`);
+      if (overshoot(f, goal.fat_g))     overs.push(`Ж +${pct(f, goal.fat_g)}%`);
+      if (overshoot(c, goal.carbs_g))   overs.push(`У +${pct(c, goal.carbs_g)}%`);
+      obj.overs = overs;
+      obj.status = overs.length ? "over" : "ok";
+      return obj;
+    });
+
+    const cellsHtml = cellsData.map((day, idx) => {
+      const cls = "week-cell" + (day.status === "over" ? " over" : day.status === "ok" ? " ok" : "");
       return `
-        <div class="${cls}" title="${escapeHtml(title)}">
+        <div class="${cls}" data-idx="${idx}" role="button" tabindex="0">
           <span class="week-day">${escapeHtml(day.weekday)}</span>
           <span class="week-num">${day.num}</span>
         </div>`;
@@ -1563,7 +1581,42 @@
     const goalLine = `Цель: ${goal.kcal} ккал · Б ${goal.protein_g} · Ж ${goal.fat_g} · У ${goal.carbs_g}`;
     wrap.innerHTML =
       `<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${goalLine}</div>` +
-      `<div class="week-tracker">${cells}</div>`;
+      `<div class="week-tracker">${cellsHtml}</div>` +
+      `<div id="week-day-details" style="margin-top:12px;font-size:13px;color:var(--text-dim);line-height:1.5;min-height:40px"></div>`;
+
+    // Клик/тап по ячейке — показать детали дня. По умолчанию — последний день.
+    const detailsEl = document.getElementById("week-day-details");
+    const showDetails = (day) => {
+      if (day.status === "empty") {
+        detailsEl.innerHTML = `<b style="color:var(--text)">${day.iso}</b> · нет записи в FatSecret за этот день`;
+        return;
+      }
+      const fmt = (v) => isFinite(v) ? Math.round(v) : "—";
+      const sign = (v) => v > 0 ? "+" + v : "" + v;
+      const colorize = (val, target) => {
+        if (!isFinite(val) || !isFinite(num(target))) return "color:var(--text-muted)";
+        const p = pct(val, num(target));
+        if (p > 7)  return "color:#ffa78c";
+        if (p < -10) return "color:var(--text-muted)";
+        return "color:#8fdc92";
+      };
+      detailsEl.innerHTML = `
+        <b style="color:var(--text)">${day.iso}</b><br>
+        <span style="${colorize(day.k, goal.kcal)}">ккал ${fmt(day.k)} (${sign(pct(day.k, goal.kcal))}%)</span> ·
+        <span style="${colorize(day.p, goal.protein_g)}">Б ${fmt(day.p)} (${sign(pct(day.p, goal.protein_g))}%)</span> ·
+        <span style="${colorize(day.f, goal.fat_g)}">Ж ${fmt(day.f)} (${sign(pct(day.f, goal.fat_g))}%)</span> ·
+        <span style="${colorize(day.c, goal.carbs_g)}">У ${fmt(day.c)} (${sign(pct(day.c, goal.carbs_g))}%)</span>
+        ${day.overs.length ? `<br><span style="color:#ffa78c">⚠ ${day.overs.join(", ")}</span>` : ""}`;
+    };
+    // Подсветить последний день по умолчанию
+    showDetails(cellsData[cellsData.length - 1]);
+    // Навешиваем обработчики
+    wrap.querySelectorAll(".week-cell").forEach((el) => {
+      el.addEventListener("click", () => {
+        const idx = parseInt(el.dataset.idx, 10);
+        if (isFinite(idx)) showDetails(cellsData[idx]);
+      });
+    });
   }
 
   // ============================================================
