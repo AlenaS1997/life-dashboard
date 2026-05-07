@@ -198,7 +198,28 @@
       line-height: 1;
     }
 
-    /* Heatmap сна (30 дней) — компактный, с числом часов внутри.
+    /* Подпись под спарклайном с датой+значением выбранной точки */
+    .spark-tip {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      font-feature-settings: "tnum" 1;
+    }
+
+    /* Кнопка-плоский тогл (например «развернуть/свернуть») */
+    .ghost-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 11px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+    }
+    .ghost-btn:hover { color: var(--text); border-color: #444; }
+
+    /* Heatmap сна — компактный, с числом часов внутри.
        Цвет по правилу: ≥8 ч — зелёный, 7..8 — жёлтый, <7 — красный. */
     .heatmap {
       display: grid;
@@ -421,25 +442,46 @@
       padding: 14px 0;
     }
 
-    /* Фазы сна — стэкбары за 14 дней */
+    /* Фазы сна — стэкбары за 7 дней с подписью часов сверху и дня снизу */
     .phases-wrap {
       display: flex;
       align-items: flex-end;
+      gap: 6px;
+      height: 170px;
+      padding: 18px 2px 22px;
+    }
+    .phase-col-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       gap: 4px;
-      height: 130px;
-      padding: 0 2px;
+      min-width: 0;
+      height: 100%;
+      justify-content: flex-end;
+    }
+    .phase-col-hours {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-dim);
+      font-feature-settings: "tnum" 1;
+    }
+    .phase-col-day {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
     }
     .phase-col {
-      flex: 1;
+      width: 100%;
       display: flex;
       flex-direction: column-reverse;
       gap: 1px;
-      min-width: 0;
       cursor: pointer;
     }
     .phase-col.empty {
       background: rgba(255,255,255,0.04);
       border-radius: 2px;
+      height: 18px;
     }
     .phase-seg {
       border-radius: 1px;
@@ -885,12 +927,15 @@
     </section>
 
     <section>
-      <h2>Сон · 30 дней</h2>
+      <h2>Сон · <span id="heatmap-period-label">14 дней</span></h2>
       <div class="heatmap" id="heatmap"></div>
-      <div class="heat-legend" style="justify-content:flex-start;gap:14px">
-        <span><span class="heat-cell good" style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> ≥ 8 ч</span>
-        <span><span class="heat-cell warn" style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> 7–8 ч</span>
-        <span><span class="heat-cell bad"  style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> &lt; 7 ч</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:14px;flex-wrap:wrap">
+        <div class="heat-legend" style="justify-content:flex-start;gap:14px;margin:0">
+          <span><span class="heat-cell good" style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> ≥ 8 ч</span>
+          <span><span class="heat-cell warn" style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> 7–8 ч</span>
+          <span><span class="heat-cell bad"  style="display:inline-block;width:14px;height:10px;vertical-align:middle"></span> &lt; 7 ч</span>
+        </div>
+        <button id="heatmap-toggle" class="ghost-btn" type="button">развернуть до 30</button>
       </div>
     </section>
 
@@ -907,20 +952,9 @@
 
     <section>
       <h2>Отбой и подъём · 7 дней</h2>
-
-      <div class="variant-label">Вариант A — линии с подписями</div>
-      <svg class="bedtime-chart" id="bedtime-chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
-      <div class="bedtime-legend">
-        <span><span class="bedtime-legend-dot" style="background:var(--bedtime-color)"></span>отбой</span>
-        <span><span class="bedtime-legend-dot" style="background:var(--wakeup-color)"></span>подъём</span>
-      </div>
-
-      <div class="variant-label" style="margin-top:24px">Вариант B — список</div>
-      <ul class="bedtime-list" id="bedtime-list"></ul>
-
-      <div class="variant-label" style="margin-top:24px">Вариант C — горизонтальные полосы</div>
       <div class="bedtime-bars" id="bedtime-bars"></div>
     </section>
+
 
     <section>
       <h2>Композитный score</h2>
@@ -1266,26 +1300,46 @@
     return n.toLocaleString("ru-RU");
   }
 
-  function sparkline(values, color) {
-    if (!values.length) return "";
+  // Sparkline с интерактивными точками: при tap/hover показывает дату+значение
+  // в подписи под графиком (#trend-{key}-tip).
+  function sparkline(rowsForKey, color, key, decimals) {
+    if (!rowsForKey.length) return "";
     const w = 140, h = 32, pad = 2;
-    const nums = values.map(num).filter((v) => isFinite(v));
-    if (!nums.length) return "";
+    const data = rowsForKey
+      .map((r) => ({ date: r.date, v: num(r[key]) }))
+      .filter((d) => isFinite(d.v));
+    if (!data.length) return "";
+    const nums = data.map((d) => d.v);
     const max = Math.max(...nums);
     const min = Math.min(...nums);
     const range = max - min || 1;
-    const points = nums.map((v, i) => {
-      const x = pad + (i / (nums.length - 1 || 1)) * (w - pad * 2);
-      const y = pad + (h - pad * 2) - ((v - min) / range) * (h - pad * 2);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(" ");
-    const lastX = pad + (w - pad * 2);
-    const lastY = pad + (h - pad * 2) - ((nums[nums.length - 1] - min) / range) * (h - pad * 2);
+    const points = data.map((d, i) => {
+      const x = pad + (i / (data.length - 1 || 1)) * (w - pad * 2);
+      const y = pad + (h - pad * 2) - ((d.v - min) / range) * (h - pad * 2);
+      return { x, y, ...d };
+    });
+    const polyPts = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    const fmtV = (v) => isFinite(v)
+      ? (decimals ? v.toFixed(decimals).replace(".", ",") : Math.round(v).toLocaleString("ru-RU"))
+      : "—";
+    const fmtDate = (iso) => {
+      try {
+        const d = new Date(iso);
+        return d.toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short" });
+      } catch { return iso; }
+    };
+    // Маркеры: точки + большие невидимые круги для удобного клика на мобиле.
+    const dotsHtml = points.map((p) => `
+      <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2" fill="${color}" />
+      <circle class="spark-hit" data-key="${key}" data-date="${escapeHtml(fmtDate(p.date))}" data-value="${escapeHtml(fmtV(p.v))}"
+              cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="6"
+              fill="transparent" style="cursor:pointer" />`).join("");
     return `
       <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-        <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-        <circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="2.6" fill="${color}" />
-      </svg>`;
+        <polyline points="${polyPts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        ${dotsHtml}
+      </svg>
+      <div class="spark-tip" id="trend-${key}-tip">мин ${fmtV(min)} · макс ${fmtV(max)}</div>`;
   }
 
   // Дельта между средним за last7 и средним за prev7.
@@ -1341,23 +1395,38 @@
             <span class="trend-label">${m.label}${delta}</span>
             <span class="trend-avg">${avgStr}<span class="unit">${m.unit ? " " + m.unit : ""}</span></span>
           </div>
-          ${sparkline(last7.map((r) => r[m.key]), m.color)}
+          ${sparkline(last7, m.color, m.key, m.decimals)}
         </div>`;
     }).join("");
+
+    // Интерактивные точки на спарклайнах: клик/наведение → дата + значение под графиком.
+    grid.querySelectorAll(".spark-hit").forEach((hit) => {
+      const showTip = () => {
+        const key = hit.dataset.key;
+        const tip = document.getElementById(`trend-${key}-tip`);
+        if (tip) tip.innerHTML = `<b style="color:var(--text)">${hit.dataset.date}</b> · ${hit.dataset.value}`;
+      };
+      hit.addEventListener("click", showTip);
+      hit.addEventListener("mouseover", showTip);
+      hit.addEventListener("touchstart", showTip, { passive: true });
+    });
   }
 
-  // Heatmap сна за 30 последних дней. Цвет — opacity от 0.10 до 1.00.
-  // Пустые ячейки (нет данных) — приглушённые.
+  // Heatmap сна. По умолчанию 14 дней, по тоглу — 30.
+  // Цвет: ≥8 ч зелёный, 7-8 жёлтый, <7 красный.
+  let HEATMAP_DAYS = 14;
   function renderHeatmap(rows) {
     const el = document.getElementById("heatmap");
     if (!el) return;
-    const last30 = rows.slice(-30);
-    if (!last30.length) {
+    const lbl = document.getElementById("heatmap-period-label");
+    if (lbl) lbl.textContent = `${HEATMAP_DAYS} дней`;
+    const lastN = rows.slice(-HEATMAP_DAYS);
+    if (!lastN.length) {
       el.innerHTML = '<div class="empty" style="grid-column:span 7">Нет истории сна</div>';
       return;
     }
-    // Рисуем ровно 30 ячеек (если данных меньше — слева пустые).
-    const filled = new Array(30 - last30.length).fill(null).concat(last30);
+    // Рисуем ровно HEATMAP_DAYS ячеек (если данных меньше — слева пустые).
+    const filled = new Array(HEATMAP_DAYS - lastN.length).fill(null).concat(lastN);
     el.innerHTML = filled.map((r) => {
       if (!r) return '<div class="heat-cell empty" title="нет данных"></div>';
       const h = num(r.sleep_hours);
@@ -1750,27 +1819,52 @@
     const maxTotal = Math.max(...totals, 1);
 
     wrap.innerHTML = filled.map((r, i) => {
-      if (!r) return '<div class="phase-col empty"></div>';
+      // Подпись дня недели снизу (для всех колонок, даже пустых).
+      let dayLabel = "";
+      if (r && r.date) {
+        try {
+          const d = new Date(r.date);
+          dayLabel = d.toLocaleDateString("ru-RU", { weekday: "short" }).toLowerCase();
+        } catch {}
+      }
+
+      if (!r) {
+        return `<div class="phase-col-wrap">
+          <span class="phase-col-hours">—</span>
+          <div class="phase-col empty"></div>
+          <span class="phase-col-day">&nbsp;</span>
+        </div>`;
+      }
       const deep  = num(r.deep_sleep_min)  || 0;
       const light = num(r.light_sleep_min) || 0;
       const rem   = num(r.rem_sleep_min)   || 0;
       const awake = num(r.awake_sleep_min) || 0;
       const total = deep + light + rem + awake;
-      if (total <= 0) return '<div class="phase-col empty"></div>';
-      // Высота колонки в % от max
-      const colHeight = Math.round((total / maxTotal) * 100);
+      if (total <= 0) {
+        return `<div class="phase-col-wrap">
+          <span class="phase-col-hours">—</span>
+          <div class="phase-col empty"></div>
+          <span class="phase-col-day">${escapeHtml(dayLabel)}</span>
+        </div>`;
+      }
       const fmt = (m) => {
         const h = Math.floor(m / 60), mm = Math.round(m % 60);
         return h > 0 ? `${h} ч ${mm} мин` : `${mm} мин`;
       };
+      const totalHrs = (total / 60).toFixed(1).replace(".", ",");
+      // Высота колонки в % от max
+      const colHeight = Math.round((total / maxTotal) * 100);
       const tip = `${escapeHtml(r.date || "")}\nГлубокий: ${fmt(deep)}\nЛёгкий: ${fmt(light)}\nREM: ${fmt(rem)}\nПробуждения: ${fmt(awake)}`;
-      // Сегменты от низа вверх: deep → light → rem → awake (column-reverse в CSS)
       return `
-        <div class="phase-col" style="height:${colHeight}%" title="${tip}">
-          <div class="phase-seg deep"  style="height:${(deep/total*100).toFixed(1)}%"></div>
-          <div class="phase-seg light" style="height:${(light/total*100).toFixed(1)}%"></div>
-          <div class="phase-seg rem"   style="height:${(rem/total*100).toFixed(1)}%"></div>
-          <div class="phase-seg awake" style="height:${(awake/total*100).toFixed(1)}%"></div>
+        <div class="phase-col-wrap" title="${tip}">
+          <span class="phase-col-hours">${totalHrs} ч</span>
+          <div class="phase-col" style="height:${colHeight}%">
+            <div class="phase-seg deep"  style="height:${(deep/total*100).toFixed(1)}%"></div>
+            <div class="phase-seg light" style="height:${(light/total*100).toFixed(1)}%"></div>
+            <div class="phase-seg rem"   style="height:${(rem/total*100).toFixed(1)}%"></div>
+            <div class="phase-seg awake" style="height:${(awake/total*100).toFixed(1)}%"></div>
+          </div>
+          <span class="phase-col-day">${escapeHtml(dayLabel)}</span>
         </div>`;
     }).join("");
   }
@@ -2089,8 +2183,6 @@
     renderNutritionWeekTracker(fsRows, latestGoal);
     renderHeatmap(garminRows);
     renderSleepPhases(garminRows);
-    renderBedtimeChart(garminRows);
-    renderBedtimeList(garminRows);
     renderBedtimeBars(garminRows);
     renderScore(latest);
     renderStreaks(garminRows);
@@ -2106,6 +2198,13 @@
       setLastUpdate();
     }
   }
+
+  // Тогл «развернуть до 30 / свернуть до 14»
+  document.getElementById("heatmap-toggle").addEventListener("click", function () {
+    HEATMAP_DAYS = HEATMAP_DAYS === 14 ? 30 : 14;
+    this.textContent = HEATMAP_DAYS === 14 ? "развернуть до 30" : "свернуть до 14";
+    load().catch((e) => console.error(e));
+  });
 
   document.getElementById("refresh-btn").addEventListener("click", () => {
     load().catch((e) => {
