@@ -71,7 +71,7 @@
       max-width: 480px;
       margin: 0 auto;
       padding: 0 16px;
-      display: flex;
+      display: none; /* скрыто до прохождения password gate */
       flex-direction: column;
       gap: 14px;
     }
@@ -857,6 +857,32 @@
 
     <div id="banner" style="display:none"></div>
 
+    <!-- Простой password-gate. Не банковская защита, но фильтрует случайных
+         посетителей, набредших на ссылку. SHA-256 пароля захардкожен —
+         в коде сам пароль не светится. После ввода — флажок в localStorage,
+         больше не спрашивает. -->
+    <div id="auth-gate" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:1000;
+         display:flex;align-items:center;justify-content:center;padding:20px">
+      <div style="max-width:300px;width:100%;background:var(--bg-card);border-radius:var(--radius);
+           padding:20px;display:flex;flex-direction:column;gap:12px">
+        <h2 style="font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em">
+          Life Dashboard
+        </h2>
+        <input id="auth-pwd" type="password" placeholder="Пароль"
+               autocomplete="current-password" autofocus
+               style="background:var(--bg-card-2);border:1px solid var(--border);
+                      border-radius:var(--radius-sm);color:var(--text);padding:12px 14px;
+                      font-size:15px;outline:none;font-family:inherit">
+        <button id="auth-btn"
+                style="background:var(--sleep);border:none;border-radius:var(--radius-sm);
+                       color:#fff;padding:12px;font-size:14px;font-weight:600;cursor:pointer;
+                       font-family:inherit">Войти</button>
+        <div id="auth-error" style="font-size:11px;color:#ff7043;text-align:center;display:none">
+          Неверный пароль
+        </div>
+      </div>
+    </div>
+
     <section>
       <h2>Сегодня</h2>
       <div class="today-grid" id="today-grid">
@@ -994,6 +1020,66 @@
   </main>
 
   <script>
+  // ============================================================
+  // PASSWORD GATE (простая защита от случайных посетителей)
+  // ============================================================
+  const AUTH_KEY = "life-dashboard:auth-ok:v1";
+  // SHA-256 от пароля. Сам пароль в коде не светится.
+  const AUTH_HASH = "40ac15abb9d19d5a69efc1fa4095b81dfb871cdeb3f85d1f5e1cfa3584efe218";
+
+  async function sha256Hex(text) {
+    const buf = new TextEncoder().encode(text);
+    const hash = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(hash))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  function unlockDashboard() {
+    document.getElementById("auth-gate").style.display = "none";
+    const main = document.querySelector("main");
+    if (main) main.style.display = "flex";
+  }
+
+  function lockDashboard() {
+    const main = document.querySelector("main");
+    if (main) main.style.display = "none";
+    document.getElementById("auth-gate").style.display = "flex";
+    setTimeout(() => {
+      const inp = document.getElementById("auth-pwd");
+      if (inp) inp.focus();
+    }, 50);
+  }
+
+  (function setupAuth() {
+    if (localStorage.getItem(AUTH_KEY) === "1") {
+      unlockDashboard();
+      return;
+    }
+    lockDashboard();
+
+    const handle = async () => {
+      const inp = document.getElementById("auth-pwd");
+      const err = document.getElementById("auth-error");
+      const val = (inp.value || "").trim();
+      if (!val) return;
+      const hex = await sha256Hex(val);
+      if (hex === AUTH_HASH) {
+        localStorage.setItem(AUTH_KEY, "1");
+        err.style.display = "none";
+        unlockDashboard();
+      } else {
+        err.style.display = "block";
+        inp.value = "";
+        inp.focus();
+      }
+    };
+    document.getElementById("auth-btn").addEventListener("click", handle);
+    document.getElementById("auth-pwd").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handle();
+    });
+  })();
+
   // ============================================================
   // КОНФИГУРАЦИЯ
   // ============================================================
