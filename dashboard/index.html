@@ -849,6 +849,32 @@
 </head>
 <body>
   <div id="ptr-indicator" class="ptr-indicator">Потяни — обновится</div>
+
+  <!-- Password-gate. Лежит вне <main>, чтобы CSS-скрытие main его не задевало.
+       После правильного ввода — флажок в localStorage, при следующих заходах
+       не спрашивает. SHA-256 хэш пароля зашит в JS, сам пароль в коде нет. -->
+  <div id="auth-gate" style="position:fixed;inset:0;background:#0a0a0a;z-index:1000;
+       display:flex;align-items:center;justify-content:center;padding:20px">
+    <div style="max-width:300px;width:100%;background:#161616;border-radius:18px;
+         padding:20px;display:flex;flex-direction:column;gap:12px">
+      <h2 style="font-size:14px;color:#8a8a8a;text-transform:uppercase;letter-spacing:0.08em">
+        Life Dashboard
+      </h2>
+      <input id="auth-pwd" type="password" placeholder="Пароль"
+             autocomplete="current-password" autofocus
+             style="background:#202020;border:1px solid #2a2a2a;
+                    border-radius:12px;color:#fafafa;padding:12px 14px;
+                    font-size:15px;outline:none;font-family:inherit">
+      <button id="auth-btn"
+              style="background:#9c88ff;border:none;border-radius:12px;
+                     color:#fff;padding:12px;font-size:14px;font-weight:600;cursor:pointer;
+                     font-family:inherit">Войти</button>
+      <div id="auth-error" style="font-size:11px;color:#ff7043;text-align:center;display:none">
+        Неверный пароль
+      </div>
+    </div>
+  </div>
+
   <main>
     <header>
       <h1 id="greeting">Доброе утро</h1>
@@ -856,32 +882,6 @@
     </header>
 
     <div id="banner" style="display:none"></div>
-
-    <!-- Простой password-gate. Не банковская защита, но фильтрует случайных
-         посетителей, набредших на ссылку. SHA-256 пароля захардкожен —
-         в коде сам пароль не светится. После ввода — флажок в localStorage,
-         больше не спрашивает. -->
-    <div id="auth-gate" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:1000;
-         display:flex;align-items:center;justify-content:center;padding:20px">
-      <div style="max-width:300px;width:100%;background:var(--bg-card);border-radius:var(--radius);
-           padding:20px;display:flex;flex-direction:column;gap:12px">
-        <h2 style="font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em">
-          Life Dashboard
-        </h2>
-        <input id="auth-pwd" type="password" placeholder="Пароль"
-               autocomplete="current-password" autofocus
-               style="background:var(--bg-card-2);border:1px solid var(--border);
-                      border-radius:var(--radius-sm);color:var(--text);padding:12px 14px;
-                      font-size:15px;outline:none;font-family:inherit">
-        <button id="auth-btn"
-                style="background:var(--sleep);border:none;border-radius:var(--radius-sm);
-                       color:#fff;padding:12px;font-size:14px;font-weight:600;cursor:pointer;
-                       font-family:inherit">Войти</button>
-        <div id="auth-error" style="font-size:11px;color:#ff7043;text-align:center;display:none">
-          Неверный пароль
-        </div>
-      </div>
-    </div>
 
     <section>
       <h2>Сегодня</h2>
