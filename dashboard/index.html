@@ -2394,8 +2394,22 @@
   // ============================================================
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch((e) => {
-        console.warn("SW registration failed:", e);
+      navigator.serviceWorker
+        .register("sw.js", { updateViaCache: "none" })  // sw.js не кешировать
+        .then((reg) => {
+          // При каждом старте — попросить браузер проверить новую версию.
+          reg.update().catch(() => {});
+        })
+        .catch((e) => console.warn("SW registration failed:", e));
+
+      // Когда новый SW взял управление (после skipWaiting + clients.claim) —
+      // автоматически перезагрузить страницу, чтобы пользователь сразу видел
+      // свежую версию без танцев с очисткой кэша.
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
       });
     });
   }
