@@ -1950,8 +1950,8 @@
       deltaHtml = `<span class="nutri-macro ${cls}">${arrow} ${sign}${fmtKg(d)} кг</span>`;
     }
 
-    // Последние 7 взвешиваний (от старого к новому) — для спарклайна и списка.
-    const recent = weighIns.slice(-7);
+    // Последние 10 взвешиваний (от старого к новому) — для спарклайна и списка.
+    const recent = weighIns.slice(-10);
 
     // Спарклайн тренда. sparkline ждёт массив объектов с полем по key.
     const sparkRows = recent.map((w) => ({ date: w.date, weight_kg: w.kg }));
@@ -1985,7 +1985,19 @@
       </div>
       ${deltaHtml ? `<div class="nutri-macros">${deltaHtml}<span style="color:var(--text-muted);font-size:11px">с прошлого взвешивания</span></div>` : ""}
       ${sparkHtml ? `<div style="margin-top:4px">${sparkHtml}</div>` : ""}
-      <div style="margin-top:8px">${listRows}</div>`;
+      <button id="weight-toggle" class="ghost-btn" type="button" style="margin-top:10px">развернуть детали</button>
+      <div id="weight-list" style="display:none;margin-top:8px">${listRows}</div>`;
+
+    // Тогл «развернуть/свернуть детали».
+    const toggleBtn = document.getElementById("weight-toggle");
+    const listEl = document.getElementById("weight-list");
+    if (toggleBtn && listEl) {
+      toggleBtn.addEventListener("click", () => {
+        const hidden = listEl.style.display === "none";
+        listEl.style.display = hidden ? "block" : "none";
+        toggleBtn.textContent = hidden ? "свернуть детали" : "развернуть детали";
+      });
+    }
   }
 
   // ============================================================
