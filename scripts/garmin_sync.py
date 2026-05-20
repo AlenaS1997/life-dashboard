@@ -214,6 +214,27 @@ def _ms_to_hhmm_msk(ms: int | None) -> str:
         return ""
 
 
+def _extract_weight(body_comp: dict) -> float | str:
+    """Достаёт вес (кг) из ответа get_body_composition.
+    Garmin отдаёт вес в граммах. Если взвешивания за день не было —
+    возвращает пустую строку (на дашборде покажем последнее известное).
+    """
+    if not body_comp:
+        return ""
+    try:
+        # Сначала пробуем dateWeightList (точные замеры за день).
+        dwl = body_comp.get("dateWeightList") or []
+        if dwl and dwl[0].get("weight"):
+            return round(float(dwl[0]["weight"]) / 1000, 1)
+        # Фоллбэк — totalAverage.
+        avg = (body_comp.get("totalAverage") or {}).get("weight")
+        if avg:
+            return round(float(avg) / 1000, 1)
+    except Exception:
+        pass
+    return ""
+
+
 def fetch_garmin_data(client: garminconnect.Garmin, target_date: str) -> dict:
     """Метрики за указанную дату. Мягко переживает отсутствие отдельных фидов."""
     log.info(f"Забираю данные за {target_date}...")
@@ -228,6 +249,10 @@ def fetch_garmin_data(client: garminconnect.Garmin, target_date: str) -> dict:
 
     bb_raw = _safe_call(client.get_body_battery, target_date, default=[], label="BodyBattery")
     bb_max, bb_min = _extract_body_battery(bb_raw)
+
+    # Вес с Garmin-весов (если в этот день было взвешивание).
+    body_comp = _safe_call(client.get_body_composition, target_date, default={}, label="weight")
+    weight_kg = _extract_weight(body_comp)
 
     # Фазы сна (в минутах) и время отбоя/подъёма (HH:MM в МСК).
     # dto.sleepStartTimestampLocal/GMT приходит в UNIX-миллисекундах.
@@ -253,6 +278,7 @@ def fetch_garmin_data(client: garminconnect.Garmin, target_date: str) -> dict:
         "awake_sleep_min": awake_min,
         "bedtime":         bedtime,
         "wakeup":          wakeup,
+        "weight_kg":       weight_kg,
     }
 
 
@@ -273,6 +299,7 @@ DEFAULT_HEADERS = [
     "awake_sleep_min",
     "bedtime",
     "wakeup",
+    "weight_kg",
 ]
 
 

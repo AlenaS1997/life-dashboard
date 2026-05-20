@@ -952,6 +952,13 @@
     </section>
 
     <section>
+      <h2>Вес</h2>
+      <div class="nutri-compact" id="weight-block">
+        <div class="nutri-empty">загрузка…</div>
+      </div>
+    </section>
+
+    <section>
       <h2>Неделя · превышения нормы</h2>
       <div id="nutri-week-wrap">
         <div class="week-tracker">
@@ -1198,6 +1205,8 @@
         awake_sleep_min: awake,
         bedtime: `${String(bh).padStart(2, "0")}:${String(bm).padStart(2, "0")}`,
         wakeup:  `${String(wh).padStart(2, "0")}:${String(wm).padStart(2, "0")}`,
+        // Взвешивание примерно раз в 3 дня.
+        weight_kg: (i % 3 === 0) ? (105.5 - (29 - i) * 0.05).toFixed(1) : "",
       });
     }
     return rows;
@@ -1909,6 +1918,47 @@
   }
 
   // ============================================================
+  // ВЕС — последнее взвешивание с Garmin-весов + динамика
+  // ============================================================
+  function renderWeight(garminRows) {
+    const block = document.getElementById("weight-block");
+    if (!block) return;
+    // Взвешивания бывают не каждый день — берём строки с непустым weight_kg.
+    const weighIns = garminRows
+      .map((r) => ({ date: r.date, kg: num(r.weight_kg) }))
+      .filter((w) => isFinite(w.kg) && w.kg > 0);
+    if (!weighIns.length) {
+      block.innerHTML = '<div class="nutri-empty">Нет данных с весов — взвесься на Garmin-весах</div>';
+      return;
+    }
+    const last = weighIns[weighIns.length - 1];
+    const prev = weighIns.length > 1 ? weighIns[weighIns.length - 2] : null;
+
+    let dateStr = last.date;
+    try {
+      dateStr = new Date(last.date).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+    } catch {}
+
+    let deltaHtml = "";
+    if (prev) {
+      const d = last.kg - prev.kg;
+      const sign = d > 0 ? "+" : "";
+      // Снижение веса показываем зелёным, рост — оранжевым (контекст: цель «1 kg to go»).
+      const cls = d > 0 ? "status-bad" : (d < 0 ? "status-good" : "");
+      const arrow = d > 0 ? "▲" : (d < 0 ? "▼" : "≈");
+      deltaHtml = `<span class="nutri-macro ${cls}">${arrow} ${sign}${d.toFixed(1).replace(".", ",")} кг</span>`;
+    }
+
+    block.innerHTML = `
+      <div class="nutri-line">
+        <span class="nutri-kcal-value">${last.kg.toFixed(1).replace(".", ",")}</span>
+        <span class="nutri-kcal-unit">кг</span>
+        <span class="nutri-kcal-vs">замер ${dateStr}</span>
+      </div>
+      ${deltaHtml ? `<div class="nutri-macros">${deltaHtml}<span style="color:var(--text-muted);font-size:11px">с прошлого взвешивания</span></div>` : ""}`;
+  }
+
+  // ============================================================
   // ФАЗЫ СНА — стэкбары за 14 дней
   // ============================================================
   function renderSleepPhases(rows) {
@@ -2290,6 +2340,7 @@
     renderToday(latest);
     renderTrends(garminRows);
     renderNutrition(latestFS, latestGoal);
+    renderWeight(garminRows);
     renderNutritionWeekTracker(fsRows, latestGoal);
     renderHeatmap(garminRows);
     renderSleepPhases(garminRows);
