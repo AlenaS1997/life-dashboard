@@ -7,17 +7,17 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "30 5 * * *"
+              "expression": "0 11 * * *"
             }
           ]
         }
       },
       "id": "16502d77-fe9a-4529-b637-b770141141ae",
-      "name": "Каждое утро 08:30 МСК",
+      "name": "Каждое утро 11:00 МСК",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
       "position": [-448, 112],
-      "notes": "Cron 30 5 * * * = 05:30 UTC = 08:30 МСК. Зависит от UTC, не от instance timezone."
+      "notes": "Cron 0 11 * * * — n8n в Europe/Moscow, cron читается как МСК. К 11:00 Михаил проснулся, и garmin-sync (10:30) уже собрал его сон."
     },
     {
       "parameters": {

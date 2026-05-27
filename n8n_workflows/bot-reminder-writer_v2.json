@@ -1,0 +1,261 @@
+{
+  "name": "bot-reminder-writer v2 (whitelist + goal)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "831a63d6-2090-445b-8095-d6fd1fe94f64",
+      "name": "Telegram: входящее сообщение",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [-1120, 300],
+      "webhookId": "d9a48c23-ac29-468b-afe0-6b17286a912d",
+      "notes": "Слушает все сообщения. n8n регистрирует webhook у Telegram при публикации workflow."
+    },
+    {
+      "parameters": {
+        "jsCode": "// WHITELIST — пропускаем дальше только сообщения от разрешённых chat_id.\n// Чтобы добавить участника (например Михаила) — впиши его chat_id в массив\n// ALLOWED. Узнать chat_id: пусть человек напишет /start боту @userinfobot.\nconst ALLOWED = ['264374209'];  // Алёна. Добавь сюда chat_id Михаила: ['264374209', 'XXXXX']\n\nconst msg = $input.first().json;\nconst chatId = String((msg && msg.message && msg.message.chat && msg.message.chat.id) || '');\n\nif (ALLOWED.includes(chatId)) {\n  return [{ json: msg }];\n}\n// Не в списке — workflow дальше не идёт, бот молчит.\nreturn [];"
+      },
+      "id": "a1b2c3d4-0001-4001-8001-whitelist00001",
+      "name": "Whitelist",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-900, 300],
+      "notes": "Фильтр по chat_id. Чужие сообщения отбрасываются."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "sheet-id",      "name": "sheet_id",      "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE", "type": "string"},
+            {"id": "reminders-tab", "name": "reminders_tab", "value": "health_reminders", "type": "string"},
+            {"id": "goals-tab",     "name": "goals_tab",     "value": "nutrition_goals",  "type": "string"},
+            {"id": "user-text",     "name": "user_text",     "value": "={{ $('Telegram: входящее сообщение').item.json.message.text || '' }}", "type": "string"},
+            {"id": "chat-id",       "name": "chat_id",       "value": "={{ $('Telegram: входящее сообщение').item.json.message.chat.id }}", "type": "string"},
+            {"id": "today-iso",     "name": "today_iso",     "value": "={{ $now.toFormat('yyyy-MM-dd') }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5d04602-baf6-44d6-b614-40f9f9015416",
+      "name": "Конфиг",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "leftValue": "", "typeValidation": "loose"},
+          "conditions": [
+            {
+              "id": "cond-goal",
+              "leftValue": "={{ $('Конфиг').item.json.user_text }}",
+              "rightValue": "/goal",
+              "operator": {"type": "string", "operation": "startsWith"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2c3d4e5-0002-4002-8002-ifgoal00000002",
+      "name": "Команда /goal?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсер команды /goal:\n//   /goal kcal=2190 protein=190 fat=70 carbs=200  → сохранить цель\n//   /goal help                                     → справка\n//   /goal                                          → подсказка\nconst text = ($('Конфиг').item.json.user_text || '').trim();\nconst chatId = $('Конфиг').item.json.chat_id;\nconst today = $('Конфиг').item.json.today_iso;\n\nconst stripped = text.replace(/^\\/goal(@\\w+)?\\s*/i, '').trim();\n\nif (/^help$/i.test(stripped)) {\n  return [{ json: {\n    action: 'reply_only', chat_id: chatId,\n    reply_text: '🎯 *Цели КБЖУ*\\n\\n`/goal kcal=2190 protein=190 fat=70 carbs=200` — задать цель\\n`/goal help` — эта справка\\n\\nДайджест и дашборд будут сравнивать твоё питание с этой целью.'\n  }}];\n}\n\nif (!stripped) {\n  return [{ json: {\n    action: 'reply_only', chat_id: chatId,\n    reply_text: '🎯 Текущая цель — на дашборде в блоке «Питание». Изменить:\\n`/goal kcal=2190 protein=190 fat=70 carbs=200`'\n  }}];\n}\n\nconst args = {};\nfor (const pair of stripped.split(/\\s+/)) {\n  const m = pair.match(/^(\\w+)=([\\d.]+)$/);\n  if (m) args[m[1].toLowerCase()] = parseFloat(m[2]);\n}\n\nconst required = ['kcal', 'protein', 'fat', 'carbs'];\nconst missing = required.filter((k) => !isFinite(args[k]));\nif (missing.length) {\n  return [{ json: {\n    action: 'reply_only', chat_id: chatId,\n    reply_text: '⚠️ Не хватает полей: ' + missing.join(', ') + '\\n\\nПример: `/goal kcal=2190 protein=190 fat=70 carbs=200`'\n  }}];\n}\n\nreturn [{ json: {\n  action: 'add_goal', chat_id: chatId,\n  reply_text: `✅ Цель сохранена:\\n*${args.kcal} ккал · Б ${args.protein} / Ж ${args.fat} / У ${args.carbs}*\\n\\nДайджест начнёт сравнивать с этими числами.`,\n  date_set: today, kcal: args.kcal, protein_g: args.protein, fat_g: args.fat, carbs_g: args.carbs, source: 'telegram'\n}}];"
+      },
+      "id": "c3d4e5f6-0003-4003-8003-goalparser0003",
+      "name": "Goal Parser",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-220, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Дальше в Sheets — только если цель валидна (action=add_goal).\nconst item = $input.first().json;\nif (item && item.action === 'add_goal' && item.kcal) {\n  return [{ json: item }];\n}\nreturn [];"
+      },
+      "id": "d4e5f6a7-0004-4004-8004-onlyaddgoal004",
+      "name": "Только если add_goal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 60]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "nutrition_goals",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {"id": "date_set",  "displayName": "date_set",  "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "kcal",      "displayName": "kcal",      "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "protein_g", "displayName": "protein_g", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "fat_g",     "displayName": "fat_g",     "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "carbs_g",   "displayName": "carbs_g",   "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "source",    "displayName": "source",    "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false}
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e5f6a7b8-0005-4005-8005-goalsheets0005",
+      "name": "Добавить в nutrition_goals",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [220, 60],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Credential: выбери Google Sheets account (Service Account)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "anthropic-version", "value": "2023-06-01"},
+            {"name": "content-type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 400,\n  \"system\": \"Ты парсер напоминаний. Пользователь пишет тебе свободный текст в Telegram, ты возвращаешь СТРОГО JSON без markdown-обёртки и без объяснений.\\n\\nСегодняшняя дата: {{ $('Конфиг').item.json.today_iso }}.\\n\\nФормат ответа:\\n{\\\"intent\\\": \\\"reminder\\\" | \\\"unknown\\\", \\\"title\\\": \\\"...\\\", \\\"description\\\": \\\"...\\\", \\\"next_date\\\": \\\"YYYY-MM-DD\\\", \\\"frequency\\\": \\\"once\\\"|\\\"daily\\\"|\\\"weekly\\\"|\\\"monthly\\\"|\\\"yearly\\\"|число_дней}\\n\\nПравила:\\n— Если в сообщении есть конкретная дата или относительное время — intent=reminder.\\n— Если непонятно или это вопрос/приветствие — intent=unknown, остальные поля пустые.\\n— Дата в формате YYYY-MM-DD. Считай относительные даты от сегодняшней.\\n— Если «каждый день/неделю/месяц/год» — frequency daily/weekly/monthly/yearly.\\n— Если «раз в N дней» — frequency=N (целое число).\\n— По умолчанию frequency=once.\\n— title — короткое название (3-5 слов), description — пусто или контекст.\\n— Только валидный JSON, без ```json```.\",\n  \"messages\": [\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($('Конфиг').item.json.user_text) }}}\n  ]\n}",
+        "options": {}
+      },
+      "id": "e7d73975-970a-444a-8390-6c216c308646",
+      "name": "Claude: парсит reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-220, 460],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Credential: Header Auth — Anthropic x-api-key."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Парсим JSON-ответ от Claude. Плоский объект — поля колонок на верхнем уровне.\nconst raw = $input.first().json;\nlet text = '';\ntry { text = raw.content[0].text || ''; } catch (e) { text = ''; }\ntext = text.replace(/```json\\s*/i, '').replace(/```\\s*$/, '').trim();\n\nlet parsed;\ntry { parsed = JSON.parse(text); }\ncatch (e) { parsed = { intent: 'unknown', _parse_error: text.slice(0, 200) }; }\n\nconst chatId = $('Конфиг').item.json.chat_id;\n\nif (parsed.intent !== 'reminder' || !parsed.next_date || !parsed.title) {\n  return [{ json: {\n    action: 'reply_only', chat_id: chatId,\n    reply_text: '🤔 Не понял как создать напоминание. Напиши в формате:\\n\\n• «30 мая — сдать анализы»\\n• «через неделю — стоматолог»\\n• «каждый понедельник — взвеситься»\\n• «раз в 14 дней — стирать постельное»'\n  }}];\n}\n\nconst slug = parsed.title.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);\nconst reminderId = slug + '-' + Date.now().toString(36);\n\nreturn [{ json: {\n  action: 'add_reminder', chat_id: chatId,\n  reply_text: `✅ Запомнила:\\n*${parsed.title}*\\nна *${parsed.next_date}* (${String(parsed.frequency || 'once')})`,\n  reminder_id: reminderId,\n  title: parsed.title,\n  description: parsed.description || '',\n  next_date: parsed.next_date,\n  frequency: String(parsed.frequency || 'once'),\n  enabled: 'TRUE',\n  last_sent: ''\n}}];"
+      },
+      "id": "f5891dad-1c6c-4a3d-9921-1962319da5e7",
+      "name": "Распарсить ответ Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 460]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Дальше в Sheets — только если action=add_reminder.\nconst item = $input.first().json;\nif (item && item.action === 'add_reminder' && item.reminder_id) {\n  return [{ json: item }];\n}\nreturn [];"
+      },
+      "id": "025a2ab2-6151-4475-8a06-fb5b63fb4fcb",
+      "name": "Только если add_reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1soLhY5LtrYzcQktWqcmX9Of0YGWqnccuvj37DU3GhKE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "health_reminders",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {"id": "reminder_id", "displayName": "reminder_id", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "title",       "displayName": "title",       "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "description", "displayName": "description", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "next_date",   "displayName": "next_date",   "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "frequency",   "displayName": "frequency",   "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "enabled",     "displayName": "enabled",     "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false},
+            {"id": "last_sent",   "displayName": "last_sent",   "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": true, "removed": false}
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "04b6b99c-e0d3-4530-9ed6-ae1d6a086164",
+      "name": "Добавить в health_reminders",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [440, 400],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Credential: Google Sheets account (Service Account)."
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.reply_text }}",
+        "additionalFields": {"parse_mode": "Markdown"}
+      },
+      "id": "b0ea0405-6a72-4c88-80b8-6c13f9be1760",
+      "name": "Ответить в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [440, 220],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "webhookId": "d2947e5e-5905-4163-99cb-82ab1122e3a6",
+      "notes": "Credential: Life Dashboard Bot."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram: входящее сообщение": {"main": [[{"node": "Whitelist", "type": "main", "index": 0}]]},
+    "Whitelist": {"main": [[{"node": "Конфиг", "type": "main", "index": 0}]]},
+    "Конфиг": {"main": [[{"node": "Команда /goal?", "type": "main", "index": 0}]]},
+    "Команда /goal?": {"main": [
+      [{"node": "Goal Parser", "type": "main", "index": 0}],
+      [{"node": "Claude: парсит reminder", "type": "main", "index": 0}]
+    ]},
+    "Goal Parser": {"main": [[
+      {"node": "Только если add_goal", "type": "main", "index": 0},
+      {"node": "Ответить в Telegram", "type": "main", "index": 0}
+    ]]},
+    "Только если add_goal": {"main": [[{"node": "Добавить в nutrition_goals", "type": "main", "index": 0}]]},
+    "Claude: парсит reminder": {"main": [[{"node": "Распарсить ответ Claude", "type": "main", "index": 0}]]},
+    "Распарсить ответ Claude": {"main": [[
+      {"node": "Только если add_reminder", "type": "main", "index": 0},
+      {"node": "Ответить в Telegram", "type": "main", "index": 0}
+    ]]},
+    "Только если add_reminder": {"main": [[{"node": "Добавить в health_reminders", "type": "main", "index": 0}]]}
+  },
+  "active": false,
+  "settings": {"executionOrder": "v1", "binaryMode": "separate"},
+  "meta": {"templateCredsSetupCompleted": true}
+}

@@ -7,7 +7,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 16 * * 0"
+              "expression": "0 19 * * 0"
             }
           ]
         }
@@ -17,7 +17,7 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
       "position": [-448, 112],
-      "notes": "Cron 0 16 * * 0 = 16:00 UTC = 19:00 МСК ВС. Воскресный итог недели."
+      "notes": "Cron 0 19 * * 0 — n8n инстанс в Europe/Moscow, cron читается как МСК. 0 19, день 0 (вс) = 19:00 МСК воскресенье."
     },
     {
       "parameters": {

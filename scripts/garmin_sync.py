@@ -236,15 +236,31 @@ def _extract_weight(body_comp: dict) -> float | str:
 
 
 def fetch_garmin_data(client: garminconnect.Garmin, target_date: str) -> dict:
-    """Метрики за указанную дату. Мягко переживает отсутствие отдельных фидов."""
+    """Метрики за указанную дату. Мягко переживает отсутствие отдельных фидов.
+
+    ВАЖНО про сон:
+    Garmin Connect сохраняет сон под датой ПРОБУЖДЕНИЯ. То есть сон ночи
+    с понедельника на вторник лежит в Garmin под датой 'вторник'.
+    Чтобы в строке Sheets с date=понедельник был сон ночи пн→вт
+    (то что человек естественно ассоциирует с «сон за понедельник» —
+    лёг вечером пн, проснулся утром вт), читаем сон по date+1.
+    Остальные метрики (шаги, стресс, HRV-измерение, BB) — за сам target_date.
+    """
     log.info(f"Забираю данные за {target_date}...")
 
-    sleep = _safe_call(client.get_sleep_data, target_date, default={}, label="sleep") or {}
+    # Дата для get_sleep_data = target_date + 1 (день пробуждения).
+    try:
+        sleep_date = (datetime.strptime(target_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
+    except Exception:
+        sleep_date = target_date
+    sleep = _safe_call(client.get_sleep_data, sleep_date, default={}, label=f"sleep (ночь {target_date}→{sleep_date})") or {}
     dto = sleep.get("dailySleepDTO", {}) or {}
 
     stats = _safe_call(client.get_stats, target_date, default={}, label="stats") or {}
 
-    hrv_raw = _safe_call(client.get_hrv_data, target_date, default={}, label="HRV")
+    # HRV меряется ночью, Garmin кладёт под датой пробуждения — берём ту же
+    # ночь, что и для сна (с target_date на следующий день).
+    hrv_raw = _safe_call(client.get_hrv_data, sleep_date, default={}, label=f"HRV (ночь {target_date}→{sleep_date})")
     hrv_val = _extract_hrv(hrv_raw)
 
     bb_raw = _safe_call(client.get_body_battery, target_date, default=[], label="BodyBattery")
