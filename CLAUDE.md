@@ -12,7 +12,7 @@
 |----------|---------|--------|
 | Garmin | Сон, HRV, шаги, стресс, Body Battery, фазы сна, отбой/подъём, вес | ✅ GitHub Actions cron **10:30 МСК** (Михаил может спать до 10, sync захватывает свежий сон). `garmin_sync.py`: сон и HRV берутся за `target_date+1` (ночь target → след. день — то, что человек ассоциирует с «сон за вчера»). Флаги `--days N` / `--overwrite`. |
 | Google Calendar (Fluffy) | События дня | ✅ n8n workflow `gcal-sync`, cron 08:00 МСК. Тянет из календаря `Fluffyismylifemoscow@gmail.com` (расшарен с основным аккаунтом). Make.com отключён. |
-| FatSecret | Питание (калории, БЖУ) | ✅ Web-scraper `scripts/fatsecret_scraper.py` парсит Diary.aspx?pa=fj через Selenium. GitHub Actions cron **07:00 МСК** (`.github/workflows/fatsecret-sync.yml`) — парсит вчерашний день, к утреннему дайджесту данные готовы. CI логинится через cookies из секрета `FATSECRET_COOKIES_JSON`. |
+| FatSecret | Питание (калории, БЖУ) | ✅ Web-scraper `scripts/fatsecret_scraper.py` парсит Diary.aspx?pa=fj через Selenium. GitHub Actions cron **10:30 МСК** (`.github/workflows/fatsecret-sync.yml`) — поздно специально, чтобы захватить поздние правки. К дайджесту 11:00 данные на месте. CI логинится через cookies из секрета `FATSECRET_COOKIES_JSON`. |
 | Whoop | Восстановление | Не подключён (опционально) |
 
 ## Инфраструктура
@@ -30,7 +30,7 @@
 - **Railway**: оплачен Hobby ($5/мес).
 - **GitHub Actions**: три workflow в `.github/workflows/`:
   - `garmin-sync.yml` — cron 10:30 МСК (`30 7 * * *` UTC).
-  - `fatsecret-sync.yml` — cron 07:00 МСК (`0 4 * * *` UTC).
+  - `fatsecret-sync.yml` — cron 10:30 МСК (`30 7 * * *` UTC).
   - `pages.yml` — деплой `dashboard/` на Pages при пуше.
 - **Google Cloud**: проект `life-dashboard-494212`.
   - Service account `life-dashboard-writer@...` — JSON-ключ `.secrets/service-account.json` (в `.gitignore`). Используется в Garmin sync и как credential Google Sheets в n8n.
@@ -53,7 +53,7 @@ n8n-инстанс работает в `Europe/Moscow` (через `GENERIC_TIME
   отбой/подъём, вес. Сон и HRV берутся за `target_date+1` (ночь, относящаяся к
   «вчерашнему дню» в человеческом понимании: лёг вчера, проснулся сегодня).
   Авто-расширение шапки `garmin_daily`. Флаги `--days N` / `--overwrite`.
-- `fatsecret_scraper.py` (GH Actions, 07:00 МСК): питание → `fatsecret_daily`.
+- `fatsecret_scraper.py` (GH Actions, 10:30 МСК): питание → `fatsecret_daily`.
 - n8n `gcal-sync` (08:00 МСК): события Fluffy → `gcal_events`. Google Sheets
   через Service Account, Calendar через OAuth.
 - n8n `morning-digest v2` (11:00 МСК) и `Weekly-digest v2` (вс 19:00 МСК):
